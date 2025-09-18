@@ -197,21 +197,28 @@ class EnhancedMitosisDetectionWorker(QThread):
                     # 패치 내 상대 좌표를 절대 좌표로 변환
                     rel_x1, rel_y1, rel_x2, rel_y2 = detection.bbox
 
-                    # 패치 크기에 대한 비율로 변환
-                    patch_level_width = patch_info.width // detector.backend.level_downsamples[patch_info.level] if hasattr(detector, 'backend') and detector.backend else patch_info.width
-                    patch_level_height = patch_info.height // detector.backend.level_downsamples[patch_info.level] if hasattr(detector, 'backend') and detector.backend else patch_info.height
-
                     # 패치 내 좌표를 level 0 절대 좌표로 변환
-                    abs_x1 = patch_info.x + (rel_x1 / image.width) * patch_level_width
-                    abs_y1 = patch_info.y + (rel_y1 / image.height) * patch_level_height
-                    abs_x2 = patch_info.x + (rel_x2 / image.width) * patch_level_width
-                    abs_y2 = patch_info.y + (rel_y2 / image.height) * patch_level_height
+                    # detection.bbox는 이미 패치 이미지 픽셀 좌표 (0 ~ patch_image_size)
+                    # 이를 슬라이드 좌표로 변환
+                    scale_x = patch_info.width / image.width
+                    scale_y = patch_info.height / image.height
+
+                    abs_x1 = float(patch_info.x + (rel_x1 * scale_x))
+                    abs_y1 = float(patch_info.y + (rel_y1 * scale_y))
+                    abs_x2 = float(patch_info.x + (rel_x2 * scale_x))
+                    abs_y2 = float(patch_info.y + (rel_y2 * scale_y))
+
+                    print(f"패치 {patch_info.patch_id}: 원본좌표=({rel_x1:.1f}, {rel_y1:.1f}, {rel_x2:.1f}, {rel_y2:.1f})")
+                    print(f"패치 정보: x={patch_info.x}, y={patch_info.y}, w={patch_info.width}, h={patch_info.height}")
+                    print(f"이미지 크기: {image.width}x{image.height}")
+                    print(f"스케일: {scale_x:.3f}, {scale_y:.3f}")
+                    print(f"최종 좌표: ({abs_x1:.1f}, {abs_y1:.1f}, {abs_x2:.1f}, {abs_y2:.1f})")
 
                     # 새로운 DetectionResult 생성
                     converted_result = DetectionResult(
                         bbox=(abs_x1, abs_y1, abs_x2, abs_y2),
-                        confidence=detection.confidence,
-                        class_id=detection.class_id
+                        confidence=float(detection.confidence),
+                        class_id=int(detection.class_id)
                     )
                     converted_results.append(converted_result)
 

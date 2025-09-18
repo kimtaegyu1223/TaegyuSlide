@@ -94,6 +94,26 @@ class MitosisDetector:
                 providers=providers
             )
 
+            # 실제 사용 중인 provider 확인
+            actual_providers = self.session.get_providers()
+            self.logger.info(f"=== GPU 실행 확인 ===")
+            self.logger.info(f"요청한 providers: {providers}")
+            self.logger.info(f"실제 사용 중인 providers: {actual_providers}")
+
+            if 'TensorrtExecutionProvider' in actual_providers:
+                print("🚀 TensorRT로 실행 중!")
+                self.logger.info("🚀 TensorRT로 실행 중!")
+            elif 'CUDAExecutionProvider' in actual_providers:
+                error_msg = "❌ CUDA로 실행되고 있습니다! TensorRT만 사용해야 합니다."
+                print(error_msg)
+                self.logger.error(error_msg)
+                raise RuntimeError(error_msg)
+            else:
+                error_msg = "❌ CPU로 실행되고 있습니다! TensorRT만 사용해야 합니다."
+                print(error_msg)
+                self.logger.error(error_msg)
+                raise RuntimeError(error_msg)
+
             # 입력/출력 정보 가져오기
             self.input_name = self.session.get_inputs()[0].name
             self.output_names = [output.name for output in self.session.get_outputs()]
@@ -108,23 +128,22 @@ class MitosisDetector:
             raise
 
     def _get_providers(self) -> List[str]:
-        """사용 가능한 실행 제공자 반환"""
+        """TensorRT만 사용하는 제공자 반환"""
         providers = []
 
-        # TensorRT 사용 가능한지 확인
+        # TensorRT만 사용
         available_providers = ort.get_available_providers()
-
         if "TensorrtExecutionProvider" in available_providers:
             providers.append("TensorrtExecutionProvider")
             self.logger.info("TensorRT provider available")
+        else:
+            raise RuntimeError(
+                "TensorRT가 사용 불가능합니다. "
+                "TensorRT 라이브러리를 올바르게 설치하고 PATH에 추가했는지 확인하세요."
+            )
 
-        if "CUDAExecutionProvider" in available_providers:
-            providers.append("CUDAExecutionProvider")
-            self.logger.info("CUDA provider available")
-
-        # CPU는 항상 사용 가능
-        providers.append("CPUExecutionProvider")
-
+        # CUDA나 CPU는 사용하지 않음 - TensorRT 전용
+        self.logger.info(f"Final providers: {providers}")
         return providers
 
     def preprocess_image(self, image: np.ndarray) -> np.ndarray:

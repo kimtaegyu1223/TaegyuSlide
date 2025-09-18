@@ -19,7 +19,7 @@ class AIConfig:
     # 패치 설정
     patch_sizes: List[int] = (512, 768, 896)
     default_patch_size: int = 512
-    overlap_ratio: float = 0.05
+    overlap_ratio: float = 0.00
 
     # 모델 입력 크기 (패치 크기와 다를 수 있음)
     model_input_size: int = 896  # 모델이 기대하는 입력 크기 (일반적으로 640x640)
@@ -30,10 +30,10 @@ class AIConfig:
     model_config_filename: str = "model_config.json"
 
     # 처리 설정
-    default_batch_size: int = 4
+    default_batch_size: int = 8
     max_batch_size: int = 32
-    default_worker_count: int = 4
-    max_worker_count: int = 6
+    default_worker_count: int = 8
+    max_worker_count: int = 14
 
     # 성능 설정
     enable_multiprocessing: bool = True
@@ -45,11 +45,11 @@ class AIConfig:
     optimize_for_speed: bool = True
     prefetch_patches: bool = True
     use_shared_memory: bool = False  # 실험적 기능
-    memory_limit_mb: int = 8000  # 최대 메모리 사용량
+    memory_limit_mb: int = 16000  # 최대 메모리 사용량
 
     # 배율 설정
     target_magnifications: List[str] = ("5x", "10x", "20x", "40x")
-    default_magnification: str = "40x"
+    default_magnification: str = "20x"
 
     @property
     def model_path(self) -> Path:

@@ -59,17 +59,31 @@ class SlideViewer(QGraphicsView):
         return self._view_scale_x() / ds
 
     def load_slide(self, path: str):
+        # 기존 오버레이 데이터 백업 (객체가 아닌 데이터만)
+        mitosis_backup = []
+        if hasattr(self, 'overlay') and self.overlay and hasattr(self.overlay, 'mitosis_detections'):
+            mitosis_backup = self.overlay.mitosis_detections.copy()
+            print(f"감지 결과 백업: {len(mitosis_backup)}개")
+
         for item in self.tile_items.values():
             self.scene.removeItem(item)
         self.tile_items.clear()
         self.cache.clear()
-        self.scene.clear()
+        self.scene.clear()  # 이때 오버레이도 함께 삭제됨
 
         if self.backend:
             self.backend.close()
 
         self.backend = OpenSlideBackend(path)
         self.cur_level = self.backend.levels - 1
+
+        # 오버레이 재생성
+        self._create_overlay()
+
+        # 백업된 감지 결과 복원
+        if mitosis_backup:
+            print(f"감지 결과 복원: {len(mitosis_backup)}개")
+            self.overlay.mitosis_detections = mitosis_backup
         w, h = self.backend.dimensions[self.cur_level]
 
         self.scene.setSceneRect(
@@ -242,33 +256,141 @@ class SlideViewer(QGraphicsView):
             return None
 
     def _create_overlay(self):
-        if self.overlay:
-            self.scene.removeItem(self.overlay)
+        # 안전하게 기존 오버레이 제거
+        if hasattr(self, 'overlay') and self.overlay:
+            try:
+                import shiboken6
+                if shiboken6.isValid(self.overlay):
+                    self.scene.removeItem(self.overlay)
+            except (RuntimeError, AttributeError):
+                pass  # 이미 삭제된 경우 무시
 
         self.overlay = OverlayItem(get_scale_func=self.level0_to_view_scale)
         self.scene.addItem(self.overlay)
+        print(f"오버레이 생성 완료, Z값: {self.overlay.zValue()}")
 
-    def add_mitosis_detections(self, detections: List["MitosisDetection"]):
+    def add_mitosis_detections(self, detections):
+        print(f"add_mitosis_detections 호출됨: {len(detections)}개 감지 결과")
+
         if not self.overlay:
             self._create_overlay()
 
         from .overlay import MitosisDetection
 
         overlay_detections = []
-        for detection in detections:
-            overlay_detection = MitosisDetection(
-                bbox=detection.bbox,
-                confidence=detection.confidence,
-                level0_coords=True
-            )
-            overlay_detections.append(overlay_detection)
 
-        self.overlay.add_mitosis_detections(overlay_detections)
+        # 현재 뷰포트 및 스케일 정보 확인
+        current_view = self.mapToScene(self.viewport().rect()).boundingRect()
+        current_scale = self.level0_to_view_scale()
+        view_scale = self._view_scale_x()
+
+        print(f"=== 스케일링 디버깅 ===")
+        print(f"현재 뷰포트: {current_view}")
+        print(f"Level0 스케일: {current_scale}")
+        print(f"뷰 스케일: {view_scale}")
+        print(f"현재 레벨: {self.cur_level}")
+        if self.backend:
+            print(f"다운샘플: {self.backend.level_downsamples[self.cur_level]}")
+            print(f"Level 0 크기: {self.backend.dimensions[0]}")
+            print(f"현재 레벨 크기: {self.backend.dimensions[self.cur_level]}")
+        print(f"패딩: {self._padding}")
+
+        # Scene 정보도 출력
+        if hasattr(self, 'scene') and self.scene():
+            scene_rect = self.scene().sceneRect()
+            print(f"Scene 크기: {scene_rect}")
+
+        # Transform 정보
+        transform = self.transform()
+        print(f"Transform: m11={transform.m11():.6f}, m22={transform.m22():.6f}")
+        print(f"Transform: dx={transform.dx():.1f}, dy={transform.dy():.1f}")
+
+        for detection in detections:
+            # DetectionResult 또는 MitosisDetection 객체 모두 처리
+            if hasattr(detection, 'bbox') and hasattr(detection, 'confidence'):
+                x1, y1, x2, y2 = detection.bbox
+                print(f"\n감지 결과 #{len(overlay_detections)+1}:")
+                print(f"  원본 bbox: ({x1}, {y1}, {x2}, {y2})")
+                print(f"  박스 크기: {x2-x1:.1f} x {y2-y1:.1f}")
+                print(f"  confidence: {detection.confidence}")
+
+                # 다양한 스케일 변환 시도
+                print(f"  스케일 변환 시도:")
+                print(f"    current_scale 적용: ({x1*current_scale:.1f}, {y1*current_scale:.1f}, {x2*current_scale:.1f}, {y2*current_scale:.1f})")
+                print(f"    view_scale 적용: ({x1*view_scale:.1f}, {y1*view_scale:.1f}, {x2*view_scale:.1f}, {y2*view_scale:.1f})")
+                print(f"    스케일 없음: ({x1:.1f}, {y1:.1f}, {x2:.1f}, {y2:.1f})")
+
+                # Level 0 대비 크기 비교
+                if self.backend:
+                    level0_w, level0_h = self.backend.dimensions[0]
+                    print(f"  Level 0 대비 위치: x={x1/level0_w*100:.2f}%, y={y1/level0_h*100:.2f}%")
+
+                # 현재 뷰포트와 비교
+                print(f"  뷰포트 vs 박스:")
+                print(f"    뷰포트: left={current_view.left():.1f}, top={current_view.top():.1f}")
+                print(f"    뷰포트: right={current_view.right():.1f}, bottom={current_view.bottom():.1f}")
+                print(f"    박스(원본): left={x1:.1f}, top={y1:.1f}, right={x2:.1f}, bottom={y2:.1f}")
+
+                # 겹침 확인
+                overlap_x = not (x2 < current_view.left() or x1 > current_view.right())
+                overlap_y = not (y2 < current_view.top() or y1 > current_view.bottom())
+                print(f"    X축 겹침: {overlap_x}, Y축 겹침: {overlap_y}")
+
+                # Level 0 좌표계 사용 (enhanced_detection_worker에서 변환된 절대 좌표)
+                overlay_detection = MitosisDetection(
+                    bbox=detection.bbox,
+                    confidence=detection.confidence,
+                    level0_coords=True  # Level 0 좌표계 사용
+                )
+                overlay_detections.append(overlay_detection)
+
+        if overlay_detections:
+            print(f"오버레이에 {len(overlay_detections)}개 결과 추가")
+            self.overlay.add_mitosis_detections(overlay_detections)
+            # 강제로 뷰 업데이트
+            self.viewport().update()
+        else:
+            print("변환된 오버레이 감지 결과가 없음")
 
     def clear_mitosis_detections(self):
         import shiboken6
         if self.overlay and shiboken6.isValid(self.overlay):
             self.overlay.clear_mitosis_detections()
+
+    def fit_detections_to_view(self):
+        """모든 감지 결과가 보이도록 화면 조정"""
+        if not self.overlay or not self.overlay.mitosis_detections:
+            return
+
+        from PySide6.QtCore import QRectF
+
+        # 모든 감지 결과의 바운딩 박스 계산
+        min_x = float('inf')
+        min_y = float('inf')
+        max_x = float('-inf')
+        max_y = float('-inf')
+
+        for detection in self.overlay.mitosis_detections:
+            x1, y1, x2, y2 = detection.bbox
+            min_x = min(min_x, x1)
+            min_y = min(min_y, y1)
+            max_x = max(max_x, x2)
+            max_y = max(max_y, y2)
+
+        if min_x != float('inf'):
+            # 여백 추가 (20%)
+            margin_x = (max_x - min_x) * 0.2
+            margin_y = (max_y - min_y) * 0.2
+
+            fit_rect = QRectF(
+                min_x - margin_x,
+                min_y - margin_y,
+                (max_x - min_x) + 2 * margin_x,
+                (max_y - min_y) + 2 * margin_y
+            )
+
+            self.fitInView(fit_rect, Qt.KeepAspectRatio)
+            print(f"모든 감지 결과에 맞춰 화면 조정: {fit_rect}")
 
     def resizeEvent(self, ev):
         super().resizeEvent(ev)

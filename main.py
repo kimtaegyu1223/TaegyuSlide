@@ -10,6 +10,18 @@ from wsi_viewer.ai import MitosisDetectionWorker, GPUManager
 from wsi_viewer.ai.enhanced_detection_worker import EnhancedMitosisDetectionWorker
 from wsi_viewer.ai.real_time_detection_worker import RealTimeDetectionWorker
 
+# ---- put this at the VERY TOP of main.py ----
+import os, sys
+# TensorRT/ CUDA bin 경로를 ASCII 경로로 옮겼다고 가정
+TRT_BIN = r"C:\Users\keyce\OneDrive\TensorRT-10.13.3.9\bin"
+CUDA_BIN = r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.6\bin"
+
+if hasattr(os, "add_dll_directory"):
+    os.add_dll_directory(TRT_BIN)
+    os.add_dll_directory(CUDA_BIN)
+# ------------------------------------------------
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -198,6 +210,11 @@ class MainWindow(QMainWindow):
         self.btn_clear_results.clicked.connect(self.clear_results)
         layout.addWidget(self.btn_clear_results)
 
+        # 감지 결과에 맞춰 화면 조정 버튼
+        self.btn_fit_detections = QPushButton("Fit Detections to View")
+        self.btn_fit_detections.clicked.connect(self.fit_detections_to_view)
+        layout.addWidget(self.btn_fit_detections)
+
         layout.addStretch()
         self.tab_widget.addTab(tab, "Results")
 
@@ -205,14 +222,20 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getOpenFileName(self, "Open slide", "", "Slides (*.svs *.ndpi *.scn *.mrxs *.tiff *.tif)")
         if not path:
             return
-        self.viewer.load_slide(path)
-        b = self.viewer.backend
-        if b:
-            txt = f"Levels: {b.levels}\\nDims: {b.dimensions}\\nMPP: {b.mpp_x:.3f} x {b.mpp_y:.3f}\\nObjective: {b.objective_power}"
-            self.info.setText(txt)
-            # 슬라이드가 로드되면 감지 버튼 활성화
-            self.btn_detect_viewport.setEnabled(True)
-            self.btn_detect_full.setEnabled(True)
+
+        try:
+            self.viewer.load_slide(path)
+            b = self.viewer.backend
+            if b:
+                txt = f"Levels: {b.levels}\\nDims: {b.dimensions}\\nMPP: {b.mpp_x:.3f} x {b.mpp_y:.3f}\\nObjective: {b.objective_power}"
+                self.info.setText(txt)
+                # 슬라이드가 로드되면 감지 버튼 활성화
+                self.btn_detect_viewport.setEnabled(True)
+                self.btn_detect_full.setEnabled(True)
+                print("슬라이드 로딩 완료, 버튼 활성화됨")
+        except Exception as e:
+            print(f"슬라이드 로딩 오류: {e}")
+            QMessageBox.critical(self, "오류", f"슬라이드 로딩 실패:\\n{e}")
 
     def toggle_dashboard(self):
         """대시보드 표시/숨김 토글"""
@@ -309,6 +332,11 @@ class MainWindow(QMainWindow):
         self.results_stats.setText("No results")
         self.results_log.clear()
 
+    def fit_detections_to_view(self):
+        """모든 감지 결과가 보이도록 화면 조정"""
+        self.viewer.fit_detections_to_view()
+        self.status_label.setText("View fitted to all detections")
+
     # 뷰포트 감지 이벤트 핸들러
     def on_viewport_progress(self, message: str):
         self.status_label.setText(message)
@@ -391,18 +419,26 @@ class MainWindow(QMainWindow):
 
     def on_patch_result_ready(self, result):
         """개별 패치 결과가 준비됨 (실시간 표시)"""
-        if result.success and result.detections:
-            # 즉시 화면에 표시
-            self.viewer.add_mitosis_detections(result.detections)
+        try:
+            if result.success and result.detections:
+                # 즉시 화면에 표시
+                self.viewer.add_mitosis_detections(result.detections)
 
-            # 로그에 실시간 업데이트
-            self.results_log.append(f"Patch {result.patch_info.patch_id}: {len(result.detections)} detections")
+                # 로그에 실시간 업데이트
+                self.results_log.append(f"Patch {result.patch_info.patch_id}: {len(result.detections)} detections")
+        except Exception as e:
+            # UI 업데이트 실패 시 로그만 기록하고 계속 진행
+            print(f"실시간 결과 표시 오류: {e}")
 
     def on_batch_result_ready(self, batch_detections):
         """배치 결과가 준비됨 (실시간 표시)"""
-        if batch_detections:
-            # 배치 단위로 화면에 표시
-            self.viewer.add_mitosis_detections(batch_detections)
+        try:
+            if batch_detections:
+                # 배치 단위로 화면에 표시
+                self.viewer.add_mitosis_detections(batch_detections)
+        except Exception as e:
+            # UI 업데이트 실패 시 로그만 기록하고 계속 진행
+            print(f"배치 결과 표시 오류: {e}")
 
 if __name__ == "__main__":
     # 로깅 설정

@@ -89,8 +89,9 @@ class RealTimeDetectionWorker(QThread):
                 self.detection_failed.emit("슬라이드에서 조직 영역을 찾을 수 없습니다")
                 return
 
+            tissue_regions_count = len(analysis.tissue_regions) if analysis.tissue_regions else 0
             self.progress_updated.emit(
-                f"{analysis.tissue_regions_count}개 조직 영역, {analysis.tissue_patches}개 패치 처리 예정", 10
+                f"{tissue_regions_count}개 조직 영역, {analysis.tissue_patches}개 패치 처리 예정", 10
             )
 
             # 2. 멀티프로세스 처리기 초기화
