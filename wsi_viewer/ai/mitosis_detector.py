@@ -6,6 +6,7 @@ from typing import List, Tuple, Dict, Any
 import numpy as np
 from PIL import Image
 import cv2
+from ..config import CONFIG
 
 try:
     import onnxruntime as ort
@@ -29,11 +30,11 @@ class MitosisDetector:
     def __init__(self, model_path: str = None, config_path: str = None):
         self.logger = logging.getLogger(__name__)
 
-        # 기본 경로 설정
+        # config에서 기본 경로 설정
         if model_path is None:
-            model_path = Path(__file__).parent.parent.parent / "models" / "mitosis_yolov12.onnx"
+            model_path = CONFIG.ai.model_path
         if config_path is None:
-            config_path = Path(__file__).parent.parent.parent / "models" / "model_config.json"
+            config_path = CONFIG.ai.config_path
 
         self.model_path = Path(model_path)
         self.config_path = Path(config_path)
@@ -128,7 +129,10 @@ class MitosisDetector:
 
     def preprocess_image(self, image: np.ndarray) -> np.ndarray:
         """이미지 전처리"""
-        input_size = self.config.get("input_size", [640, 640])
+        # config에서 모델 입력 크기 가져오기, 없으면 설정에서 가져오기
+        from ..config import CONFIG
+        model_input_size = CONFIG.ai.model_input_size
+        input_size = self.config.get("input_size", [model_input_size, model_input_size])
         preprocess_config = self.config.get("preprocessing", {})
 
         # 크기 조정
@@ -152,13 +156,16 @@ class MitosisDetector:
         processed = padded.astype(np.float32) / 255.0
 
         if preprocess_config.get("normalize", False):
-            mean = np.array(preprocess_config.get("mean", [0.485, 0.456, 0.406]))
-            std = np.array(preprocess_config.get("std", [0.229, 0.224, 0.225]))
+            mean = np.array(preprocess_config.get("mean", [0.485, 0.456, 0.406]), dtype=np.float32)
+            std = np.array(preprocess_config.get("std", [0.229, 0.224, 0.225]), dtype=np.float32)
             processed = (processed - mean) / std
 
         # CHW 형식으로 변환 및 배치 차원 추가
         processed = processed.transpose(2, 0, 1)
         processed = np.expand_dims(processed, axis=0)
+
+        # 데이터 타입을 float32로 확실히 보장
+        processed = processed.astype(np.float32)
 
         return processed, scale, (pad_x, pad_y)
 

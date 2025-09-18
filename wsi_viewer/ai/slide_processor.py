@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 from .tissue_detector import TissueDetector, TissueRegion
+from ..config import CONFIG
 
 @dataclass
 class PatchInfo:
@@ -38,13 +39,13 @@ class SlideAnalysis:
 class SlideProcessor:
     """전체 슬라이드를 패치로 분할하고 처리하는 클래스"""
 
-    def __init__(self, backend, target_magnification: str = "40x",
-                 patch_size: int = 896, overlap_ratio: float = 0.1,
+    def __init__(self, backend, target_magnification: str = None,
+                 patch_size: int = None, overlap_ratio: float = None,
                  enable_tissue_detection: bool = True):
         self.backend = backend
-        self.target_magnification = target_magnification
-        self.patch_size = patch_size
-        self.overlap_ratio = overlap_ratio
+        self.target_magnification = target_magnification or CONFIG.ai.default_magnification
+        self.patch_size = patch_size or CONFIG.ai.default_patch_size
+        self.overlap_ratio = overlap_ratio or CONFIG.ai.overlap_ratio
         self.enable_tissue_detection = enable_tissue_detection
         self.logger = logging.getLogger(__name__)
 

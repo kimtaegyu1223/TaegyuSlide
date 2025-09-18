@@ -14,29 +14,40 @@ from .overlay import OverlayItem
 class SlideViewer(QGraphicsView):
     def __init__(self):
         super().__init__()
-        if CONFIG.use_opengl_viewport:
+        # OpenGL 뷰포트 여부
+        if CONFIG.viewer.use_opengl_viewport:
             from PySide6.QtOpenGLWidgets import QOpenGLWidget
             self.setViewport(QOpenGLWidget())
+
+        # 기본 렌더링 설정
         self.setRenderHints(QPainter.Antialiasing | QPainter.SmoothPixmapTransform)
         self.setDragMode(QGraphicsView.ScrollHandDrag)
         self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
         self.setResizeAnchor(QGraphicsView.AnchorUnderMouse)
 
+        # Scene 초기화
         self.scene = QGraphicsScene(self)
-        self.scene.setBackgroundBrush(QBrush(Qt.white))  # 흰색 배경으로 설정
+        self.scene.setBackgroundBrush(QBrush(Qt.white))
         self.setScene(self.scene)
 
+        # Backend & 캐시
         self.backend: OpenSlideBackend | None = None
         self.cur_level: int = 0
-        self.cache: LRUCache[TileKey, QPixmap] = LRUCache(maxsize=CONFIG.cache_max_tiles)
+        self.cache: LRUCache[TileKey, QPixmap] = LRUCache(maxsize=CONFIG.viewer.cache_max_tiles)
         self.tile_items: Dict[TileKey, QGraphicsPixmapItem] = {}
         self.scheduler = TileScheduler()
+
+        # Overlay
         self.overlay: OverlayItem | None = None
         self._create_overlay()
+
+        # Cleanup timer
         self.cleanup_timer = QTimer(self)
         self.cleanup_timer.setSingleShot(True)
         self.cleanup_timer.timeout.connect(self.cleanup_old_tiles)
-        self._padding = CONFIG.padding
+
+        # 패딩 값
+        self._padding = CONFIG.viewer.padding
 
     def _view_scale_x(self) -> float:
         return float(self.transform().m11())
@@ -53,12 +64,18 @@ class SlideViewer(QGraphicsView):
         self.tile_items.clear()
         self.cache.clear()
         self.scene.clear()
+
         if self.backend:
             self.backend.close()
+
         self.backend = OpenSlideBackend(path)
         self.cur_level = self.backend.levels - 1
         w, h = self.backend.dimensions[self.cur_level]
-        self.scene.setSceneRect(-self._padding, -self._padding, w + 2*self._padding, h + 2*self._padding)
+
+        self.scene.setSceneRect(
+            -self._padding, -self._padding,
+            w + 2*self._padding, h + 2*self._padding
+        )
         self.fitInView(self.scene.sceneRect(), Qt.KeepAspectRatio)
         self.update_visible_tiles()
 
@@ -71,33 +88,44 @@ class SlideViewer(QGraphicsView):
     def wheelEvent(self, event):
         if not self.backend:
             return
+
         anchor_scene_before = self.mapToScene(event.position().toPoint())
-        zf = CONFIG.zoom_factor_step if event.angleDelta().y() > 0 else 1.0 / CONFIG.zoom_factor_step
+        zf = CONFIG.viewer.zoom_factor_step if event.angleDelta().y() > 0 else 1.0 / CONFIG.viewer.zoom_factor_step
+
         cur_l0_scale = self.level0_to_view_scale()
         target_l0_scale = cur_l0_scale * zf
-        if not (CONFIG.min_scale_l0 <= target_l0_scale <= CONFIG.max_scale_l0):
+
+        if not (CONFIG.viewer.min_scale_l0 <= target_l0_scale <= CONFIG.viewer.max_scale_l0):
             return
+
         new_level = self.backend.get_best_level_for_downsample(1.0 / target_l0_scale)
         level_changed = (new_level != self.cur_level)
+
         if not level_changed:
             self.scale(zf, zf)
         else:
             self.cleanup_timer.stop()
             for item in self.tile_items.values():
                 item.setZValue(-1)
+
             old_ds = self.backend.level_downsamples[self.cur_level]
             self.cur_level = new_level
             w, h = self.backend.dimensions[self.cur_level]
-            self.scene.setSceneRect(-self._padding, -self._padding, w + 2*self._padding, h + 2*self._padding)
+            self.scene.setSceneRect(
+                -self._padding, -self._padding,
+                w + 2*self._padding, h + 2*self._padding
+            )
             new_ds = self.backend.level_downsamples[self.cur_level]
             new_view_scale = target_l0_scale * new_ds
             self.setTransform(QTransform().scale(new_view_scale, new_view_scale))
+
             level0_pos = anchor_scene_before * old_ds
             anchor_scene_after = level0_pos / new_ds
             self.centerOn(anchor_scene_after)
+
         self.update_visible_tiles()
         if level_changed:
-            self.cleanup_timer.start(CONFIG.cleanup_delay_ms)
+            self.cleanup_timer.start(CONFIG.viewer.cleanup_delay_ms)
 
     def cleanup_old_tiles(self):
         if not self.backend:
@@ -115,18 +143,22 @@ class SlideViewer(QGraphicsView):
         vr = vr.intersected(QRectF(0, 0, w, h))
         if vr.isEmpty():
             return
-        ts = CONFIG.tile_size
+
+        ts = CONFIG.viewer.tile_size
         col0 = max(int(math.floor(vr.left()/ts)), 0)
         row0 = max(int(math.floor(vr.top()/ts)), 0)
         col1 = min(int(math.ceil(vr.right()/ts)), (w-1)//ts)
         row1 = min(int(math.ceil(vr.bottom()/ts)), (h-1)//ts)
+
         visible: Set[TileKey] = set()
         for r in range(row0, row1+1):
             for c in range(col0, col1+1):
                 visible.add((self.cur_level, c, r))
+
         for key in set(self.tile_items.keys()) - visible:
             item = self.tile_items.pop(key)
             self.scene.removeItem(item)
+
         for r in range(row0, row1+1):
             for c in range(col0, col1+1):
                 key = (self.cur_level, c, r)
@@ -151,7 +183,7 @@ class SlideViewer(QGraphicsView):
         self.cache[key] = pm
         if not self.backend or level != self.cur_level or key in self.tile_items:
             return
-        ts = CONFIG.tile_size
+        ts = CONFIG.viewer.tile_size
         tile_rect = QRectF(col*ts, row*ts, ts, ts)
         viewport_rect = self.mapToScene(self.viewport().rect()).boundingRect()
         if tile_rect.intersects(viewport_rect):
@@ -171,25 +203,20 @@ class SlideViewer(QGraphicsView):
 
         from PIL import Image
 
-        # 대상 레벨 결정 (기본값: 최고 해상도)
         if target_level is None:
             target_level = 0  # 최고 해상도
 
-        # 현재 뷰포트 영역을 scene 좌표로 변환
         viewport_rect = self.mapToScene(self.viewport().rect()).boundingRect()
 
-        # 현재 레벨에서 level 0으로 좌표 변환
         current_ds = self.backend.level_downsamples[self.cur_level]
         target_ds = self.backend.level_downsamples[target_level]
         scale_factor = current_ds / target_ds
 
-        # Level 0 좌표로 변환
         x0 = int(viewport_rect.left() * scale_factor)
         y0 = int(viewport_rect.top() * scale_factor)
         w0 = int(viewport_rect.width() * scale_factor)
         h0 = int(viewport_rect.height() * scale_factor)
 
-        # 슬라이드 범위 내로 제한
         level_w, level_h = self.backend.dimensions[target_level]
         target_scale = self.backend.level_downsamples[target_level]
 
@@ -202,7 +229,6 @@ class SlideViewer(QGraphicsView):
             return None
 
         try:
-            # 이미지 읽기
             image = self.backend.slide.read_region(
                 (x0, y0), target_level,
                 (int(w0 / target_scale), int(h0 / target_scale))
@@ -216,7 +242,6 @@ class SlideViewer(QGraphicsView):
             return None
 
     def _create_overlay(self):
-        """오버레이 생성"""
         if self.overlay:
             self.scene.removeItem(self.overlay)
 
@@ -224,7 +249,6 @@ class SlideViewer(QGraphicsView):
         self.scene.addItem(self.overlay)
 
     def add_mitosis_detections(self, detections: List["MitosisDetection"]):
-        """Mitosis 감지 결과를 오버레이에 추가"""
         if not self.overlay:
             self._create_overlay()
 
@@ -232,18 +256,16 @@ class SlideViewer(QGraphicsView):
 
         overlay_detections = []
         for detection in detections:
-            # DetectionResult → MitosisDetection 변환
             overlay_detection = MitosisDetection(
                 bbox=detection.bbox,
                 confidence=detection.confidence,
-                level0_coords=True  # 기본적으로 level 0 좌표로 가정
+                level0_coords=True
             )
             overlay_detections.append(overlay_detection)
 
         self.overlay.add_mitosis_detections(overlay_detections)
 
     def clear_mitosis_detections(self):
-        """Mitosis 감지 결과 제거"""
         import shiboken6
         if self.overlay and shiboken6.isValid(self.overlay):
             self.overlay.clear_mitosis_detections()

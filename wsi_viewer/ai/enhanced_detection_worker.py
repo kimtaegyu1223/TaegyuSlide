@@ -31,10 +31,11 @@ class EnhancedMitosisDetectionWorker(QThread):
     detection_failed = Signal(str)  # error message
 
     def __init__(self, backend, target_magnification: str = "40x",
-                 custom_batch_size: int = None, model_path: str = None):
+                 patch_size: int = None, custom_batch_size: int = None, model_path: str = None):
         super().__init__()
         self.backend = backend
         self.target_magnification = target_magnification
+        self.patch_size = patch_size
         self.custom_batch_size = custom_batch_size
         self.model_path = model_path
         self.logger = logging.getLogger(__name__)
@@ -69,6 +70,7 @@ class EnhancedMitosisDetectionWorker(QThread):
             processor = SlideProcessor(
                 self.backend,
                 target_magnification=self.target_magnification,
+                patch_size=self.patch_size,
                 enable_tissue_detection=True
             )
             analysis = processor.analyze_slide()

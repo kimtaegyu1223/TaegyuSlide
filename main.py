@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (QApplication, QDockWidget, QLabel, QMainWindow, Q
 from wsi_viewer.viewer import SlideViewer
 from wsi_viewer.ai import MitosisDetectionWorker, GPUManager
 from wsi_viewer.ai.enhanced_detection_worker import EnhancedMitosisDetectionWorker
+from wsi_viewer.ai.real_time_detection_worker import RealTimeDetectionWorker
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -129,6 +130,15 @@ class MainWindow(QMainWindow):
         self.gpu_info_label.setWordWrap(True)
         layout.addWidget(self.gpu_info_label)
 
+        # 패치 크기 설정
+        patch_layout = QHBoxLayout()
+        patch_layout.addWidget(QLabel("Patch Size:"))
+        self.patch_size_combo = QComboBox()
+        self.patch_size_combo.addItems(["512", "768", "896"])
+        self.patch_size_combo.setCurrentText("896")  # 기본값
+        patch_layout.addWidget(self.patch_size_combo)
+        layout.addLayout(patch_layout)
+
         # 배치 크기 설정
         batch_layout = QHBoxLayout()
         batch_layout.addWidget(QLabel("Batch Size:"))
@@ -150,6 +160,11 @@ class MainWindow(QMainWindow):
         self.tissue_detection_check = QCheckBox("Enable tissue detection")
         self.tissue_detection_check.setChecked(True)
         layout.addWidget(self.tissue_detection_check)
+
+        # 실시간 결과 표시 활성화
+        self.real_time_check = QCheckBox("Enable real-time results (multiprocessing)")
+        self.real_time_check.setChecked(True)
+        layout.addWidget(self.real_time_check)
 
         # GPU 정보 새로고침 버튼
         self.btn_refresh_gpu = QPushButton("Refresh GPU Info")
@@ -258,13 +273,26 @@ class MainWindow(QMainWindow):
         # 설정 가져오기
         batch_size = self.batch_size_spin.value()
         magnification = self.magnification_combo.currentText()
+        patch_size = int(self.patch_size_combo.currentText())
+        use_real_time = self.real_time_check.isChecked()
 
-        # 향상된 워커 시작
-        self.detection_worker = EnhancedMitosisDetectionWorker(
-            self.viewer.backend,
-            target_magnification=magnification,
-            custom_batch_size=batch_size
-        )
+        # 워커 선택 및 시작
+        if use_real_time:
+            self.detection_worker = RealTimeDetectionWorker(
+                self.viewer.backend,
+                target_magnification=magnification,
+                patch_size=patch_size
+            )
+            # 실시간 시그널 추가 연결
+            self.detection_worker.patch_result_ready.connect(self.on_patch_result_ready)
+            self.detection_worker.detection_batch_ready.connect(self.on_batch_result_ready)
+        else:
+            self.detection_worker = EnhancedMitosisDetectionWorker(
+                self.viewer.backend,
+                target_magnification=magnification,
+                patch_size=patch_size,
+                custom_batch_size=batch_size
+            )
 
         # 시그널 연결
         self.detection_worker.analysis_completed.connect(self.on_analysis_completed)
@@ -360,6 +388,21 @@ class MainWindow(QMainWindow):
         QMessageBox.critical(self, "Detection Error", f"Full slide detection failed:\\n{error_message}")
         self.results_log.append(f"ERROR: {error_message}\\n")
         self.detection_worker = None
+
+    def on_patch_result_ready(self, result):
+        """개별 패치 결과가 준비됨 (실시간 표시)"""
+        if result.success and result.detections:
+            # 즉시 화면에 표시
+            self.viewer.add_mitosis_detections(result.detections)
+
+            # 로그에 실시간 업데이트
+            self.results_log.append(f"Patch {result.patch_info.patch_id}: {len(result.detections)} detections")
+
+    def on_batch_result_ready(self, batch_detections):
+        """배치 결과가 준비됨 (실시간 표시)"""
+        if batch_detections:
+            # 배치 단위로 화면에 표시
+            self.viewer.add_mitosis_detections(batch_detections)
 
 if __name__ == "__main__":
     # 로깅 설정

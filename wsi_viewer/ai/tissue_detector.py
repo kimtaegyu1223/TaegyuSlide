@@ -18,7 +18,7 @@ class TissueDetector:
 
     def __init__(self,
                  thumbnail_level: int = -1,  # 가장 낮은 해상도 레벨
-                 min_tissue_area: int = 1000,  # 최소 티슈 영역 크기
+                 min_tissue_area: int = 50,  # 최소 티슈 영역 크기
                  saturation_threshold: int = 15,  # 채도 임계값
                  gaussian_blur_kernel: int = 5):   # 가우시안 블러 커널 크기
 

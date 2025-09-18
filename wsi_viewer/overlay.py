@@ -16,7 +16,6 @@ class MitosisDetection:
 
     def __repr__(self):
         return f"MitosisDetection(bbox={self.bbox}, conf={self.confidence:.3f})"
-
 class OverlayItem(QGraphicsItem):
     def __init__(self, level0_points: Iterable[Point] = None, level0_boxes: Iterable[Box] = None,
                  get_scale_func: Callable[[], float] | None = None, pen: QPen | None = None):
@@ -26,63 +25,74 @@ class OverlayItem(QGraphicsItem):
         self.mitosis_detections: List[MitosisDetection] = []
         self.get_scale = get_scale_func
         self.setZValue(10)
+
+        # 펜/폰트 설정
         self.pen = pen or QPen(Qt.red, 2, Qt.SolidLine)
         self.mitosis_pen = QPen(QColor(255, 0, 0), 3, Qt.SolidLine)  # 빨간색 굵은 선
         self.font = QFont("Arial", 12, QFont.Bold)
 
     def add_mitosis_detections(self, detections: List[MitosisDetection]):
         """Mitosis 감지 결과 추가"""
-        self.mitosis_detections.extend(detections)
-        self.update()
+        if not detections:
+            return
+        # 중복 방지 (bbox + confidence 기준)
+        existing = {(d.bbox, round(d.confidence, 3)) for d in self.mitosis_detections}
+        for d in detections:
+            if (d.bbox, round(d.confidence, 3)) not in existing:
+                self.mitosis_detections.append(d)
+        self.update()  # 화면 리프레시 트리거
 
     def clear_mitosis_detections(self):
         """Mitosis 감지 결과 제거"""
-        self.mitosis_detections.clear()
-        self.update()
+        if self.mitosis_detections:
+            self.mitosis_detections.clear()
+            self.update()
 
     def boundingRect(self) -> QRectF:
-        return QRectF(-1e9, -1e9, 2e9, 2e9)
+        # 아주 큰 rect 반환해서 항상 paint 호출되게 함
+        return QRectF(-1e6, -1e6, 2e6, 2e6)
 
     def paint(self, painter: QPainter, option, widget=None) -> None:
         if not self.get_scale:
             return
-
         s = float(self.get_scale())
 
-        # 기존 오버레이 그리기
+        # --- 기존 오버레이 ---
         painter.setPen(self.pen)
         for (x0, y0) in self.level0_points:
             painter.drawEllipse(QPointF(x0 * s, y0 * s), 6, 6)
         for (x0, y0, w0, h0) in self.level0_boxes:
             painter.drawRect(x0 * s, y0 * s, w0 * s, h0 * s)
 
-        # Mitosis 감지 결과 그리기
+        # --- Mitosis Detection ---
+        if not self.mitosis_detections:
+            return
+
         painter.setPen(self.mitosis_pen)
         painter.setFont(self.font)
 
         for detection in self.mitosis_detections:
             x1, y1, x2, y2 = detection.bbox
-
             if detection.level0_coords:
-                # Level 0 좌표인 경우 스케일링 적용
                 rect_x = x1 * s
                 rect_y = y1 * s
                 rect_w = (x2 - x1) * s
                 rect_h = (y2 - y1) * s
             else:
-                # 현재 레벨 좌표인 경우 그대로 사용
                 rect_x = x1
                 rect_y = y1
                 rect_w = x2 - x1
                 rect_h = y2 - y1
 
-            # 바운딩 박스 그리기
+            # 박스 그리기
             painter.drawRect(rect_x, rect_y, rect_w, rect_h)
 
-            # 신뢰도 점수 표시
+            # 점수 표시 (반투명 흰 배경 + 텍스트)
             confidence_text = f"M: {detection.confidence:.2f}"
             text_rect = QRectF(rect_x, rect_y - 25, rect_w, 20)
-            painter.fillRect(text_rect, QColor(255, 255, 255, 180))  # 반투명 흰 배경
+            painter.fillRect(text_rect, QColor(255, 255, 255, 180))
             painter.setPen(QPen(Qt.black, 1))
             painter.drawText(text_rect, Qt.AlignCenter, confidence_text)
-            painter.setPen(self.mitosis_pen)  # 펜 복원
+
+            # 다시 빨간색 펜으로 복원
+            painter.setPen(self.mitosis_pen)
