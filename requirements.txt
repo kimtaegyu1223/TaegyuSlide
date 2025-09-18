@@ -1,0 +1,14 @@
+# WSI Viewer 기본 의존성
+PySide6>=6.4.0
+openslide-python>=1.2.0
+cachetools>=5.0.0
+Pillow>=9.0.0
+
+# AI/ML 의존성 - Mitosis Detection
+onnxruntime-gpu>=1.15.0  # GPU 가속 (CUDA 필요)
+# onnxruntime>=1.15.0    # CPU only 버전 (GPU 없는 경우)
+opencv-python>=4.7.0
+numpy>=1.21.0
+
+# 로깅 및 유틸리티
+pathlib  # Python 3.4+ 기본 포함
