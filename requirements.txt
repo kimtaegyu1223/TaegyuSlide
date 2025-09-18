@@ -10,5 +10,8 @@ onnxruntime-gpu>=1.15.0  # GPU 가속 (CUDA 필요)
 opencv-python>=4.7.0
 numpy>=1.21.0
 
+# GPU 관리 (선택사항)
+pynvml>=11.4.0  # NVIDIA GPU 정보 조회용
+
 # 로깅 및 유틸리티
 pathlib  # Python 3.4+ 기본 포함
