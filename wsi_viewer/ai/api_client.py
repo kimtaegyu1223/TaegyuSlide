@@ -15,7 +15,7 @@ class DetectionResult:
         self.bbox = bbox  # (x1, y1, x2, y2) in original image coordinates
         self.confidence = confidence
         self.class_id = class_id
-        self.class_name = "mitosis"
+        self.class_name = "object"
 
     def __repr__(self):
         return f"DetectionResult(bbox={self.bbox}, conf={self.confidence:.3f})"
@@ -28,8 +28,8 @@ class APIConfig:
     timeout: int = 30
     max_retries: int = 3
 
-class MitosisAPIClient:
-    """서버 기반 Mitosis 감지 API 클라이언트"""
+class ObjectDetectionAPIClient:
+    """서버 기반 Object Detection API 클라이언트"""
 
     def __init__(self, config: APIConfig = None):
         self.logger = logging.getLogger(__name__)
@@ -76,7 +76,7 @@ class MitosisAPIClient:
         return results
 
     def detect_from_pil(self, image: Image.Image, **kwargs) -> List[DetectionResult]:
-        """PIL 이미지에서 mitosis 감지"""
+        """PIL 이미지에서 object detection"""
         try:
             # 이미지를 base64로 인코딩
             image_b64 = self._image_to_base64(image)
@@ -120,7 +120,7 @@ class MitosisAPIClient:
             raise RuntimeError(f"Detection failed: {e}")
 
     def detect_batch(self, images: List[Image.Image], **kwargs) -> List[List[DetectionResult]]:
-        """여러 이미지에 대한 배치 감지"""
+        """여러 이미지에 대한 배치 객체 감지"""
         results = []
 
         for i, image in enumerate(images):

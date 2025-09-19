@@ -104,10 +104,10 @@ class SlideViewer(QGraphicsView):
     # -------------------- 로딩 --------------------
     def load_slide(self, path: str):
         # 기존 오버레이 데이터 백업 (데이터만)
-        mitosis_backup = []
-        if self.overlay and hasattr(self.overlay, 'mitosis_detections'):
-            mitosis_backup = list(self.overlay.mitosis_detections)
-            log.debug("감지 결과 백업: %d", len(mitosis_backup))
+        object_backup = []
+        if self.overlay and hasattr(self.overlay, 'object_detections'):
+            object_backup = list(self.overlay.object_detections)
+            log.debug("감지 결과 백업: %d", len(object_backup))
 
         # 전체 정리 (중복 제거 루틴 간소화)
         self._scene.clear()
@@ -128,9 +128,9 @@ class SlideViewer(QGraphicsView):
         self._create_overlay()
 
         # 백업 감지 결과 복구
-        if mitosis_backup:
-            self.overlay.mitosis_detections = mitosis_backup
-            log.debug("감지 결과 복원: %d", len(mitosis_backup))
+        if object_backup:
+            self.overlay.object_detections = object_backup
+            log.debug("감지 결과 복원: %d", len(object_backup))
 
         # SceneRect & 화면 맞춤
         w, h = self.backend.dimensions[self.cur_level]
@@ -283,14 +283,14 @@ class SlideViewer(QGraphicsView):
         self._scene.addItem(self.overlay)
         log.debug("오버레이 생성 완료, Z=%s", self.overlay.zValue())
 
-    def add_mitosis_detections(self, detections):
+    def add_object_detections(self, detections):
         if not self.overlay:
             self._create_overlay()
 
         try:
-            from .overlay import MitosisDetection
+            from .overlay import ObjectDetection
         except Exception:
-            log.exception("overlay.MitosisDetection import 실패")
+            log.exception("overlay.ObjectDetection import 실패")
             return
 
         overlay_detections = []
@@ -302,19 +302,19 @@ class SlideViewer(QGraphicsView):
 
         for det in detections:
             if hasattr(det, 'bbox') and hasattr(det, 'confidence'):
-                overlay_detections.append(MitosisDetection(bbox=det.bbox, confidence=det.confidence, level0_coords=True))
+                overlay_detections.append(ObjectDetection(bbox=det.bbox, confidence=det.confidence, level0_coords=True))
 
         if overlay_detections:
-            self.overlay.add_mitosis_detections(overlay_detections)
+            self.overlay.add_object_detections(overlay_detections)
             self.viewport().update()
             log.debug("오버레이에 %d개 결과 추가", len(overlay_detections))
         else:
             log.debug("추가할 감지 결과 없음")
 
-    def clear_mitosis_detections(self):
+    def clear_object_detections(self):
         try:
             import shiboken6
             if self.overlay and shiboken6.isValid(self.overlay):
-                self.overlay.clear_mitosis_detections()
+                self.overlay.clear_object_detections()
         except Exception:
             pass

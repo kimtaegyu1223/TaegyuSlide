@@ -6,16 +6,16 @@ from dataclasses import dataclass
 from PySide6.QtCore import QThread, Signal
 from PIL import Image
 
-from .api_client import MitosisAPIClient, DetectionResult, APIConfig
+from .api_client import ObjectDetectionAPIClient, DetectionResult, APIConfig
 from .slide_processor import SlideProcessor, SlideAnalysis, PatchInfo
-from ..overlay import MitosisDetection
+from ..overlay import ObjectDetection
 
 @dataclass
 class ProcessingStats:
     """처리 통계"""
     processed_patches: int = 0
     total_patches: int = 0
-    detected_mitosis: int = 0
+    detected_objects: int = 0
     processing_speed: float = 0.0  # patches/second
     estimated_remaining: float = 0.0  # seconds
     start_time: float = 0.0
@@ -27,7 +27,7 @@ class ServerBasedDetectionWorker(QThread):
     analysis_completed = Signal(object)  # SlideAnalysis
     progress_updated = Signal(str, float)  # message, progress(0-100)
     stats_updated = Signal(object)  # ProcessingStats
-    detection_completed = Signal(list)  # List[MitosisDetection]
+    detection_completed = Signal(list)  # List[ObjectDetection]
     detection_failed = Signal(str)  # error message
 
     def __init__(self, backend, target_magnification: str = "20x",
@@ -68,7 +68,7 @@ class ServerBasedDetectionWorker(QThread):
 
             # 2. API 클라이언트 초기화
             self.progress_updated.emit("Connecting to detection server...", 10)
-            client = MitosisAPIClient(config=self.api_config)
+            client = ObjectDetectionAPIClient(config=self.api_config)
 
             if not client.is_ready():
                 raise RuntimeError("Detection server is not available")
@@ -99,14 +99,14 @@ class ServerBasedDetectionWorker(QThread):
                         global_x2 = patch_info.x + x2
                         global_y2 = patch_info.y + y2
 
-                        detection = MitosisDetection(
+                        detection = ObjectDetection(
                             bbox=(global_x1, global_y1, global_x2, global_y2),
                             confidence=result.confidence,
                             level0_coords=True
                         )
                         all_detections.append(detection)
 
-                    self.stats.detected_mitosis = len(all_detections)
+                    self.stats.detected_objects = len(all_detections)
 
                 except Exception as e:
                     self.logger.warning(f"Failed to process patch {patch_info.patch_id}: {e}")
@@ -186,7 +186,7 @@ class BatchDetectionWorker(QThread):
                 return
 
             # API 클라이언트 초기화
-            client = MitosisAPIClient(config=self.api_config)
+            client = ObjectDetectionAPIClient(config=self.api_config)
             if not client.is_ready():
                 raise RuntimeError("Detection server is not available")
 
@@ -235,9 +235,9 @@ class BatchDetectionWorker(QThread):
             self.logger.error(error_msg)
             self.detection_failed.emit(error_msg)
 
-    def _process_batch(self, client: MitosisAPIClient,
+    def _process_batch(self, client: ObjectDetectionAPIClient,
                       batch_patches: List[Image.Image],
-                      batch_infos: List[PatchInfo]) -> List[MitosisDetection]:
+                      batch_infos: List[PatchInfo]) -> List[ObjectDetection]:
         """배치 처리"""
         batch_detections = []
 

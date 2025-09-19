@@ -49,11 +49,11 @@ class MainWindow(QMainWindow):
         menu_file.addAction(act_open)
 
         # AI 메뉴
-        act_detect_mitosis = QAction("Detect Mitosis (Full Slide)", self)
-        act_detect_mitosis.setShortcut("Ctrl+M")
-        act_detect_mitosis.triggered.connect(self.detect_mitosis_full_slide)
+        act_detect_objects = QAction("Detect Objects (Full Slide)", self)
+        act_detect_objects.setShortcut("Ctrl+M")
+        act_detect_objects.triggered.connect(self.detect_objects_full_slide)
         menu_ai = self.menuBar().addMenu("AI")
-        menu_ai.addAction(act_detect_mitosis)
+        menu_ai.addAction(act_detect_objects)
 
         # View 메뉴
         act_toggle_dashboard = QAction("Toggle Dashboard", self)
@@ -100,9 +100,9 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.info)
 
         # 전체 슬라이드 감지 버튼
-        self.btn_detect_full = QPushButton("🔬 Detect (Full Slide)")
+        self.btn_detect_full = QPushButton("🔍 Detect (Full Slide)")
         self.btn_detect_full.setEnabled(False)
-        self.btn_detect_full.clicked.connect(self.detect_mitosis_full_slide)
+        self.btn_detect_full.clicked.connect(self.detect_objects_full_slide)
         layout.addWidget(self.btn_detect_full)
 
         # 진행률 바
@@ -231,8 +231,8 @@ class MainWindow(QMainWindow):
     def check_server_connection(self):
         """서버 연결 상태 확인"""
         try:
-            from wsi_viewer.ai import MitosisAPIClient
-            client = MitosisAPIClient(config=self.api_config)
+            from wsi_viewer.ai import ObjectDetectionAPIClient
+            client = ObjectDetectionAPIClient(config=self.api_config)
 
             if client.is_ready():
                 server_info = client.get_server_info()
@@ -254,14 +254,14 @@ class MainWindow(QMainWindow):
             self.btn_detect_full.setEnabled(False)
 
 
-    def detect_mitosis_full_slide(self):
-        """전체 슬라이드 감지"""
+    def detect_objects_full_slide(self):
+        """전체 슬라이드 객체 감지"""
         if not self.viewer.backend:
             self.status_label.setText("No slide loaded")
             return
 
         # 기존 결과 제거
-        self.viewer.clear_mitosis_detections()
+        self.viewer.clear_object_detections()
 
         # 버튼 비활성화
         self.btn_detect_full.setEnabled(False)
@@ -304,7 +304,7 @@ class MainWindow(QMainWindow):
 
     def clear_results(self):
         """결과 제거"""
-        self.viewer.clear_mitosis_detections()
+        self.viewer.clear_object_detections()
         self.results_stats.setText("No results")
         self.results_log.clear()
 
@@ -336,7 +336,7 @@ class MainWindow(QMainWindow):
         """통계 업데이트"""
         remaining_str = f"{int(stats.estimated_remaining//60)}:{int(stats.estimated_remaining%60):02d}" if stats.estimated_remaining > 0 else "00:00"
         stats_text = f"Processed: {stats.processed_patches}/{stats.total_patches}\\n"
-        stats_text += f"Detected: {stats.detected_mitosis} mitosis\\n"
+        stats_text += f"Detected: {stats.detected_objects} objects\\n"
         stats_text += f"Speed: {stats.processing_speed:.1f} patches/sec\\n"
         stats_text += f"Remaining: {remaining_str}"
         self.results_stats.setText(stats_text)
@@ -347,8 +347,8 @@ class MainWindow(QMainWindow):
         self.progress_bar.setVisible(False)
 
         if results:
-            self.viewer.add_mitosis_detections(results)
-            self.status_label.setText(f"Full slide analysis complete: {len(results)} mitosis detected")
+            self.viewer.add_object_detections(results)
+            self.status_label.setText(f"Full slide analysis complete: {len(results)} objects detected")
 
             # 결과 탭으로 전환
             self.tab_widget.setCurrentIndex(2)
@@ -358,10 +358,10 @@ class MainWindow(QMainWindow):
             self.results_log.append(f"Total detections: {len(results)}\\n")
             if self.analysis_result:
                 density = len(results) / (self.analysis_result.tissue_coverage * 100) if self.analysis_result.tissue_coverage > 0 else 0
-                self.results_log.append(f"Density: {density:.2f} mitosis per % tissue area\\n")
+                self.results_log.append(f"Density: {density:.2f} objects per % tissue area\\n")
 
         else:
-            self.status_label.setText("Full slide analysis complete: No mitosis detected")
+            self.status_label.setText("Full slide analysis complete: No objects detected")
 
         self.detection_worker = None
 
@@ -380,7 +380,7 @@ class MainWindow(QMainWindow):
         try:
             if batch_detections:
                 # 배치 단위로 화면에 표시
-                self.viewer.add_mitosis_detections(batch_detections)
+                self.viewer.add_object_detections(batch_detections)
 
                 # 로그에 업데이트
                 self.results_log.append(f"Batch processed: {len(batch_detections)} detections")

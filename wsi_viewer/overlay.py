@@ -12,8 +12,8 @@ Point = Tuple[float, float]
 Box = Tuple[float, float, float, float]  # (x1, y1, x2, y2) in level0 coords by default
 
 
-class MitosisDetection:
-    """Container for a single mitosis detection."""
+class ObjectDetection:
+    """Container for a single object detection."""
 
     def __init__(self, bbox: Box, confidence: float, level0_coords: bool = True):
         self.bbox = bbox
@@ -21,12 +21,12 @@ class MitosisDetection:
         self.level0_coords = bool(level0_coords)
 
     def __repr__(self) -> str:  # debug-friendly
-        return f"MitosisDetection(bbox={self.bbox}, conf={self.confidence:.3f}, level0={self.level0_coords})"
+        return f"ObjectDetection(bbox={self.bbox}, conf={self.confidence:.3f}, level0={self.level0_coords})"
 
 
 class OverlayItem(QGraphicsItem):
     """
-    QGraphicsItem overlay for mitosis results.
+    QGraphicsItem overlay for object detection results.
 
     ✅ Key features
     - Draws detection boxes anchored on scene positions, but with **fixed pixel size** on screen
@@ -61,7 +61,7 @@ class OverlayItem(QGraphicsItem):
 
         self.level0_points = list(level0_points or [])
         self.level0_boxes = list(level0_boxes or [])
-        self.mitosis_detections: List[MitosisDetection] = []
+        self.object_detections: List[ObjectDetection] = []
         self.get_scale = get_scale_func or (lambda: 1.0)
         self.box_px = int(box_pixel_size)
 
@@ -72,8 +72,8 @@ class OverlayItem(QGraphicsItem):
         self.pen = (pen or QPen(Qt.red, 2, Qt.SolidLine))
         self.pen.setCosmetic(True)
 
-        self.mitosis_pen = QPen(QColor(255, 0, 0), 2, Qt.SolidLine)
-        self.mitosis_pen.setCosmetic(True)
+        self.object_pen = QPen(QColor(255, 0, 0), 2, Qt.SolidLine)
+        self.object_pen.setCosmetic(True)
 
         self.text_bg = QColor(255, 255, 0, 200)
         self.text_pen = QPen(Qt.black, 1)
@@ -83,15 +83,15 @@ class OverlayItem(QGraphicsItem):
     # -------------------------------
     # Public API
     # -------------------------------
-    def add_mitosis_detections(self, detections: List[MitosisDetection]) -> None:
+    def add_object_detections(self, detections: List[ObjectDetection]) -> None:
         if not detections:
             return
-        existing = {(d.bbox, round(d.confidence, 3)) for d in self.mitosis_detections}
+        existing = {(d.bbox, round(d.confidence, 3)) for d in self.object_detections}
         appended = False
         for d in detections:
             key = (d.bbox, round(d.confidence, 3))
             if key not in existing:
-                self.mitosis_detections.append(d)
+                self.object_detections.append(d)
                 appended = True
         if appended:
             try:
@@ -99,17 +99,17 @@ class OverlayItem(QGraphicsItem):
             except RuntimeError:
                 pass  # Item may already be deleted
 
-    def set_mitosis_detections(self, detections: List[MitosisDetection]) -> None:
+    def set_object_detections(self, detections: List[ObjectDetection]) -> None:
         """Replace all detections at once."""
-        self.mitosis_detections = list(detections or [])
+        self.object_detections = list(detections or [])
         try:
             self.update()
         except RuntimeError:
             pass
 
-    def clear_mitosis_detections(self) -> None:
-        if self.mitosis_detections:
-            self.mitosis_detections.clear()
+    def clear_object_detections(self) -> None:
+        if self.object_detections:
+            self.object_detections.clear()
             try:
                 self.update()
             except RuntimeError:
@@ -136,11 +136,11 @@ class OverlayItem(QGraphicsItem):
         for (x1, y1, x2, y2) in self.level0_boxes:
             painter.drawRect(x1 * s_level, y1 * s_level, (x2 - x1) * s_level, (y2 - y1) * s_level)
 
-        if not self.mitosis_detections:
+        if not self.object_detections:
             return
 
-        # Mitosis boxes: draw with **fixed pixel size** using device-space painting.
-        for det in self.mitosis_detections:
+        # Object boxes: draw with **fixed pixel size** using device-space painting.
+        for det in self.object_detections:
             x1, y1, x2, y2 = map(float, det.bbox)
 
             # Anchor at bbox center in SCENE coordinates
@@ -157,7 +157,7 @@ class OverlayItem(QGraphicsItem):
     # -------------------------------
     # Helpers
     # -------------------------------
-    def _draw_fixed_pixel_box(self, painter: QPainter, scene_pt: QPointF, det: MitosisDetection) -> None:
+    def _draw_fixed_pixel_box(self, painter: QPainter, scene_pt: QPointF, det: ObjectDetection) -> None:
         """
         Draw a box centered at `scene_pt` whose **on-screen size is constant** in pixels.
         Implementation: map scene->device, reset transform, draw in device pixels, restore.
@@ -173,7 +173,7 @@ class OverlayItem(QGraphicsItem):
 
         # Filled rectangle + border (cosmetic pens)
         painter.fillRect(rect_px, QColor(255, 0, 0, 80))
-        painter.setPen(self.mitosis_pen)
+        painter.setPen(self.object_pen)
         painter.drawRect(rect_px)
 
         # Cross mark
@@ -186,7 +186,7 @@ class OverlayItem(QGraphicsItem):
         painter.fillRect(text_rect, self.text_bg)
         painter.setPen(self.text_pen)
         painter.setFont(self.font)
-        painter.drawText(text_rect, Qt.AlignCenter, f"MITOSIS: {det.confidence:.3f}")
+        painter.drawText(text_rect, Qt.AlignCenter, f"OBJECT: {det.confidence:.3f}")
 
         painter.restore()
 
@@ -214,4 +214,4 @@ class OverlayItem(QGraphicsItem):
 #      uses level L coordinates, then level0->scene scale is s = 1/dL.
 #
 # 3) To update from worker threads, emit a Qt signal carrying detections and connect it to
-#    OverlayItem.set_mitosis_detections on the GUI thread. QGraphicsItem is **not** thread-safe.
+#    OverlayItem.set_object_detections on the GUI thread. QGraphicsItem is **not** thread-safe.

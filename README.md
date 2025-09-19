@@ -1,4 +1,4 @@
-# TaegyuSlide - WSI Viewer with AI-Powered Mitosis Detection
+# TaegyuSlide - WSI Viewer with AI-Powered Object Detection
 
 ![TaegyuSlide Demo](docs/demo.gif)
 
@@ -13,7 +13,7 @@
 - **하드웨어 가속**: OpenGL 뷰포트 지원으로 고성능 렌더링
 
 ### 🤖 AI 감지 기능
-- **서버 기반 AI 추론**: HTTP API를 통한 세포분열 감지
+- **서버 기반 AI 추론**: HTTP API를 통한 객체 감지
 - **배치 처리**: 대용량 슬라이드의 효율적인 병렬 처리
 - **실시간 결과 표시**: 분석 진행 중 결과를 즉시 화면에 표시
 - **정확한 좌표 매핑**: Level-0 좌표계 기반 정밀한 위치 추적
@@ -152,7 +152,7 @@ class AIConfig:
 4. 진행 상황을 **Results** 탭에서 모니터링
 
 ### 4. 결과 확인
-- 감지된 세포분열 위치가 **빨간 사각형**으로 표시
+- 감지된 객체 위치가 **빨간 사각형**으로 표시
 - **신뢰도 점수**가 각 감지 결과에 표시
 - **Fit Detections to View** 버튼으로 모든 결과 확인
 
@@ -221,7 +221,7 @@ _on_tile_done() → scene.addItem()
 #### AI 감지 플로우
 ```python
 # 1. 사용자 감지 시작
-detect_mitosis_full_slide()
+detect_objects_full_slide()
 
 # 2. 워커 생성 및 시작
 ServerBasedDetectionWorker.start()
@@ -230,10 +230,10 @@ ServerBasedDetectionWorker.start()
 SlideProcessor.analyze_slide()
 
 # 4. 패치 추출 및 API 호출
-extract_tissue_patches() → MitosisAPIClient.detect_from_pil()
+extract_tissue_patches() → ObjectDetectionAPIClient.detect_from_pil()
 
 # 5. 결과 표시
-add_mitosis_detections() → OverlayItem.add_mitosis_detections()
+add_object_detections() → OverlayItem.add_object_detections()
 ```
 
 ### 새로운 기능 추가
