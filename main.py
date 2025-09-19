@@ -6,20 +6,9 @@ from PySide6.QtWidgets import (QApplication, QDockWidget, QLabel, QMainWindow, Q
                                QVBoxLayout, QPushButton, QMessageBox, QSplitter, QProgressBar,
                                QTextEdit, QTabWidget, QHBoxLayout, QSpinBox, QCheckBox, QComboBox)
 from wsi_viewer.viewer import SlideViewer
-from wsi_viewer.ai import MitosisDetectionWorker, GPUManager
-from wsi_viewer.ai.enhanced_detection_worker import EnhancedMitosisDetectionWorker
-from wsi_viewer.ai.real_time_detection_worker import RealTimeDetectionWorker
+from wsi_viewer.ai import MitosisDetectionWorker, ServerBasedDetectionWorker, BatchDetectionWorker, APIConfig
+from wsi_viewer.config import CONFIG
 
-# ---- put this at the VERY TOP of main.py ----
-import os, sys
-# TensorRT/ CUDA bin 경로를 ASCII 경로로 옮겼다고 가정
-TRT_BIN = r"C:\Users\keyce\OneDrive\TensorRT-10.13.3.9\bin"
-CUDA_BIN = r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.6\bin"
-
-if hasattr(os, "add_dll_directory"):
-    os.add_dll_directory(TRT_BIN)
-    os.add_dll_directory(CUDA_BIN)
-# ------------------------------------------------
 
 
 class MainWindow(QMainWindow):
@@ -40,8 +29,12 @@ class MainWindow(QMainWindow):
         self._build_menu()
         self._build_dashboard()
 
-        # GPU 관리자
-        self.gpu_manager = GPUManager()
+        # API 설정
+        self.api_config = APIConfig(
+            base_url=CONFIG.ai.server_base_url,
+            detection_endpoint=CONFIG.ai.detection_endpoint,
+            timeout=CONFIG.ai.api_timeout
+        )
 
         # AI 감지 워커
         self.detection_worker = None
@@ -136,18 +129,18 @@ class MainWindow(QMainWindow):
         tab = QWidget()
         layout = QVBoxLayout(tab)
 
-        # GPU 정보
-        layout.addWidget(QLabel("GPU Settings:"))
-        self.gpu_info_label = QLabel("Detecting GPU...")
-        self.gpu_info_label.setWordWrap(True)
-        layout.addWidget(self.gpu_info_label)
+        # 서버 연결 정보
+        layout.addWidget(QLabel("Server Connection:"))
+        self.server_status_label = QLabel("Checking server connection...")
+        self.server_status_label.setWordWrap(True)
+        layout.addWidget(self.server_status_label)
 
         # 패치 크기 설정
         patch_layout = QHBoxLayout()
         patch_layout.addWidget(QLabel("Patch Size:"))
         self.patch_size_combo = QComboBox()
         self.patch_size_combo.addItems(["512", "768", "896"])
-        self.patch_size_combo.setCurrentText("896")  # 기본값
+        self.patch_size_combo.setCurrentText("512")  # 기본값
         patch_layout.addWidget(self.patch_size_combo)
         layout.addLayout(patch_layout)
 
@@ -156,7 +149,7 @@ class MainWindow(QMainWindow):
         batch_layout.addWidget(QLabel("Batch Size:"))
         self.batch_size_spin = QSpinBox()
         self.batch_size_spin.setRange(1, 32)
-        self.batch_size_spin.setValue(4)
+        self.batch_size_spin.setValue(CONFIG.ai.default_batch_size)
         batch_layout.addWidget(self.batch_size_spin)
         layout.addLayout(batch_layout)
 
@@ -165,6 +158,7 @@ class MainWindow(QMainWindow):
         mag_layout.addWidget(QLabel("Magnification:"))
         self.magnification_combo = QComboBox()
         self.magnification_combo.addItems(["40x", "20x", "10x", "5x"])
+        self.magnification_combo.setCurrentText(CONFIG.ai.default_magnification)
         mag_layout.addWidget(self.magnification_combo)
         layout.addLayout(mag_layout)
 
@@ -173,21 +167,21 @@ class MainWindow(QMainWindow):
         self.tissue_detection_check.setChecked(True)
         layout.addWidget(self.tissue_detection_check)
 
-        # 실시간 결과 표시 활성화
-        self.real_time_check = QCheckBox("Enable real-time results (multiprocessing)")
-        self.real_time_check.setChecked(True)
-        layout.addWidget(self.real_time_check)
+        # 배치 처리 활성화
+        self.batch_processing_check = QCheckBox("Enable batch processing")
+        self.batch_processing_check.setChecked(CONFIG.ai.enable_batch_processing)
+        layout.addWidget(self.batch_processing_check)
 
-        # GPU 정보 새로고침 버튼
-        self.btn_refresh_gpu = QPushButton("Refresh GPU Info")
-        self.btn_refresh_gpu.clicked.connect(self.refresh_gpu_info)
-        layout.addWidget(self.btn_refresh_gpu)
+        # 서버 연결 확인 버튼
+        self.btn_check_server = QPushButton("Check Server Connection")
+        self.btn_check_server.clicked.connect(self.check_server_connection)
+        layout.addWidget(self.btn_check_server)
 
         layout.addStretch()
         self.tab_widget.addTab(tab, "AI Settings")
 
-        # 초기 GPU 정보 로드
-        self.refresh_gpu_info()
+        # 초기 서버 연결 확인
+        self.check_server_connection()
 
     def _build_results_tab(self):
         """결과 탭"""
@@ -242,15 +236,33 @@ class MainWindow(QMainWindow):
         self.dashboard_visible = not self.dashboard_visible
         self.dashboard.setVisible(self.dashboard_visible)
 
-    def refresh_gpu_info(self):
-        """GPU 정보 새로고침"""
+    def check_server_connection(self):
+        """서버 연결 상태 확인"""
         try:
-            gpu_info = self.gpu_manager.detect_gpu()
-            gpu_text = f"GPU: {gpu_info.name}\\nMemory: {gpu_info.memory_available}MB available\\nRecommended Batch: {gpu_info.recommended_batch_size}"
-            self.gpu_info_label.setText(gpu_text)
-            self.batch_size_spin.setValue(gpu_info.recommended_batch_size)
+            from wsi_viewer.ai import MitosisAPIClient
+            client = MitosisAPIClient(config=self.api_config)
+
+            if client.is_ready():
+                server_info = client.get_server_info()
+                status_text = f"✓ Connected to {self.api_config.base_url}\n"
+                if server_info:
+                    model_info = server_info.get('model', {})
+                    status_text += f"Model: {model_info.get('name', 'Unknown')}\n"
+                    status_text += f"Version: {model_info.get('version', 'Unknown')}"
+                self.server_status_label.setText(status_text)
+                # 슬라이드가 로드된 경우에만 버튼 활성화
+                if self.viewer.backend:
+                    self.btn_detect_viewport.setEnabled(True)
+                    self.btn_detect_full.setEnabled(True)
+            else:
+                self.server_status_label.setText(f"✗ Cannot connect to {self.api_config.base_url}\nPlease check if the server is running.")
+                self.btn_detect_viewport.setEnabled(False)
+                self.btn_detect_full.setEnabled(False)
+
         except Exception as e:
-            self.gpu_info_label.setText(f"GPU detection failed: {e}")
+            self.server_status_label.setText(f"✗ Connection failed: {e}")
+            self.btn_detect_viewport.setEnabled(False)
+            self.btn_detect_full.setEnabled(False)
 
     def detect_mitosis_viewport(self):
         """현재 뷰포트에서 빠른 감지"""
@@ -271,8 +283,8 @@ class MainWindow(QMainWindow):
         self.btn_detect_viewport.setEnabled(False)
         self.status_label.setText("Processing viewport...")
 
-        # 간단한 워커 시작
-        self.detection_worker = MitosisDetectionWorker(image)
+        # 서버 API 워커 시작
+        self.detection_worker = MitosisDetectionWorker(image, api_config=self.api_config)
         self.detection_worker.progress_updated.connect(self.on_viewport_progress)
         self.detection_worker.detection_completed.connect(self.on_viewport_completed)
         self.detection_worker.detection_failed.connect(self.on_viewport_failed)
@@ -297,24 +309,25 @@ class MainWindow(QMainWindow):
         batch_size = self.batch_size_spin.value()
         magnification = self.magnification_combo.currentText()
         patch_size = int(self.patch_size_combo.currentText())
-        use_real_time = self.real_time_check.isChecked()
+        use_batch_processing = self.batch_processing_check.isChecked()
 
         # 워커 선택 및 시작
-        if use_real_time:
-            self.detection_worker = RealTimeDetectionWorker(
-                self.viewer.backend,
-                target_magnification=magnification,
-                patch_size=patch_size
-            )
-            # 실시간 시그널 추가 연결
-            self.detection_worker.patch_result_ready.connect(self.on_patch_result_ready)
-            self.detection_worker.detection_batch_ready.connect(self.on_batch_result_ready)
-        else:
-            self.detection_worker = EnhancedMitosisDetectionWorker(
+        if use_batch_processing:
+            self.detection_worker = BatchDetectionWorker(
                 self.viewer.backend,
                 target_magnification=magnification,
                 patch_size=patch_size,
-                custom_batch_size=batch_size
+                batch_size=batch_size,
+                api_config=self.api_config
+            )
+            # 배치 처리 시그널 연결
+            self.detection_worker.batch_result_ready.connect(self.on_batch_result_ready)
+        else:
+            self.detection_worker = ServerBasedDetectionWorker(
+                self.viewer.backend,
+                target_magnification=magnification,
+                patch_size=patch_size,
+                api_config=self.api_config
             )
 
         # 시그널 연결
@@ -417,25 +430,15 @@ class MainWindow(QMainWindow):
         self.results_log.append(f"ERROR: {error_message}\\n")
         self.detection_worker = None
 
-    def on_patch_result_ready(self, result):
-        """개별 패치 결과가 준비됨 (실시간 표시)"""
-        try:
-            if result.success and result.detections:
-                # 즉시 화면에 표시
-                self.viewer.add_mitosis_detections(result.detections)
-
-                # 로그에 실시간 업데이트
-                self.results_log.append(f"Patch {result.patch_info.patch_id}: {len(result.detections)} detections")
-        except Exception as e:
-            # UI 업데이트 실패 시 로그만 기록하고 계속 진행
-            print(f"실시간 결과 표시 오류: {e}")
-
     def on_batch_result_ready(self, batch_detections):
         """배치 결과가 준비됨 (실시간 표시)"""
         try:
             if batch_detections:
                 # 배치 단위로 화면에 표시
                 self.viewer.add_mitosis_detections(batch_detections)
+
+                # 로그에 업데이트
+                self.results_log.append(f"Batch processed: {len(batch_detections)} detections")
         except Exception as e:
             # UI 업데이트 실패 시 로그만 기록하고 계속 진행
             print(f"배치 결과 표시 오류: {e}")

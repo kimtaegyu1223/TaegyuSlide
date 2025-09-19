@@ -46,6 +46,11 @@ class SlideViewer(QGraphicsView):
         self.cleanup_timer.setSingleShot(True)
         self.cleanup_timer.timeout.connect(self.cleanup_old_tiles)
 
+        # 스크롤 시 타일 업데이트용 타이머 (성능 최적화)
+        self.scroll_update_timer = QTimer(self)
+        self.scroll_update_timer.setSingleShot(True)
+        self.scroll_update_timer.timeout.connect(self.update_visible_tiles)
+
         # 패딩 값
         self._padding = CONFIG.viewer.padding
 
@@ -391,6 +396,14 @@ class SlideViewer(QGraphicsView):
 
             self.fitInView(fit_rect, Qt.KeepAspectRatio)
             print(f"모든 감지 결과에 맞춰 화면 조정: {fit_rect}")
+
+    def scrollContentsBy(self, dx, dy):
+        """뷰포트가 스크롤(드래그)될 때 호출됨"""
+        super().scrollContentsBy(dx, dy)
+
+        # 성능 최적화: 드래그 중에는 타이머로 지연시켜서 업데이트
+        # 드래그가 끝나고 50ms 후에 타일 업데이트 수행
+        self.scroll_update_timer.start(50)
 
     def resizeEvent(self, ev):
         super().resizeEvent(ev)

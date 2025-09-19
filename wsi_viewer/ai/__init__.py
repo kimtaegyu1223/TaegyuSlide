@@ -1,14 +1,14 @@
-"""AI 기반 분석 모듈"""
+"""AI 기반 분석 모듈 - 서버 API 방식"""
 
-from .mitosis_detector import MitosisDetector, DetectionResult
+from .api_client import MitosisAPIClient, DetectionResult, APIConfig
 from .detection_worker import MitosisDetectionWorker
+from .server_detection_worker import ServerBasedDetectionWorker, BatchDetectionWorker, ProcessingStats
 from .slide_processor import SlideProcessor, SlideAnalysis, PatchInfo
 from .tissue_detector import TissueDetector, TissueRegion
-from .gpu_manager import GPUManager, GPUInfo
 
 __all__ = [
-    'MitosisDetector', 'DetectionResult', 'MitosisDetectionWorker',
+    'MitosisAPIClient', 'DetectionResult', 'APIConfig', 'MitosisDetectionWorker',
+    'ServerBasedDetectionWorker', 'BatchDetectionWorker', 'ProcessingStats',
     'SlideProcessor', 'SlideAnalysis', 'PatchInfo',
-    'TissueDetector', 'TissueRegion',
-    'GPUManager', 'GPUInfo'
+    'TissueDetector', 'TissueRegion'
 ]

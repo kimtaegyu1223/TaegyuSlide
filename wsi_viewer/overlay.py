@@ -1,157 +1,217 @@
 from __future__ import annotations
 from typing import Callable, Iterable, Tuple, List
+
 from PySide6.QtCore import QRectF, QPointF, Qt
 from PySide6.QtGui import QPainter, QPen, QFont, QColor
 from PySide6.QtWidgets import QGraphicsItem
 
+# -------------------------------
+# Types
+# -------------------------------
 Point = Tuple[float, float]
-Box = Tuple[float, float, float, float]
+Box = Tuple[float, float, float, float]  # (x1, y1, x2, y2) in level0 coords by default
+
 
 class MitosisDetection:
-    """Mitosis 감지 결과를 저장하는 클래스"""
-    def __init__(self, bbox: Box, confidence: float, level0_coords: bool = True):
-        self.bbox = bbox  # (x1, y1, x2, y2)
-        self.confidence = confidence
-        self.level0_coords = level0_coords  # Level 0 좌표계 여부
+    """Container for a single mitosis detection."""
 
-    def __repr__(self):
-        return f"MitosisDetection(bbox={self.bbox}, conf={self.confidence:.3f})"
+    def __init__(self, bbox: Box, confidence: float, level0_coords: bool = True):
+        self.bbox = bbox
+        self.confidence = float(confidence)
+        self.level0_coords = bool(level0_coords)
+
+    def __repr__(self) -> str:  # debug-friendly
+        return f"MitosisDetection(bbox={self.bbox}, conf={self.confidence:.3f}, level0={self.level0_coords})"
+
+
 class OverlayItem(QGraphicsItem):
-    def __init__(self, level0_points: Iterable[Point] = None, level0_boxes: Iterable[Box] = None,
-                 get_scale_func: Callable[[], float] | None = None, pen: QPen | None = None):
+    """
+    QGraphicsItem overlay for mitosis results.
+
+    ✅ Key features
+    - Draws detection boxes anchored on scene positions, but with **fixed pixel size** on screen
+      (zooming the view won't change the on-screen box size).
+    - Uses **cosmetic pens** so line thickness stays constant.
+    - Safe guards against double-add and GC issues by encouraging caller to keep a strong ref.
+
+    Parameters
+    ----------
+    level0_points : Iterable[Point]
+        Optional debug points in level0 coordinates.
+    level0_boxes : Iterable[Box]
+        Optional debug boxes in level0 coordinates (x1,y1,x2,y2).
+    get_scale_func : Callable[[], float]
+        Function returning the scale from **level0 coords -> current scene coords** (e.g., downsample factor inverse).
+        If your scene already uses level0 coordinates directly, return 1.0.
+    box_pixel_size : int
+        On-screen pixel size of each drawn detection rectangle.
+    pen : QPen
+        Optional base pen.
+    """
+
+    def __init__(
+        self,
+        level0_points: Iterable[Point] | None = None,
+        level0_boxes: Iterable[Box] | None = None,
+        get_scale_func: Callable[[], float] | None = None,
+        box_pixel_size: int = 26,
+        pen: QPen | None = None,
+    ) -> None:
         super().__init__()
+
         self.level0_points = list(level0_points or [])
         self.level0_boxes = list(level0_boxes or [])
         self.mitosis_detections: List[MitosisDetection] = []
-        self.get_scale = get_scale_func
-        self.setZValue(9999)  # 매우 높은 Z값으로 설정해서 확실히 맨 앞에 표시
+        self.get_scale = get_scale_func or (lambda: 1.0)
+        self.box_px = int(box_pixel_size)
 
-        # 펜/폰트 설정 - 가시성 강화
-        self.pen = pen or QPen(Qt.red, 3, Qt.SolidLine)
-        self.mitosis_pen = QPen(QColor(255, 0, 0), 8, Qt.SolidLine)  # 빨간색 매우 굵은 선
-        self.font = QFont("Arial", 16, QFont.Bold)
+        # Make sure we're on top
+        self.setZValue(9999)
 
-    def add_mitosis_detections(self, detections: List[MitosisDetection]):
-        """Mitosis 감지 결과 추가"""
+        # Pens/fonts — cosmetic=True keeps width in **device pixels** regardless of view transform
+        self.pen = (pen or QPen(Qt.red, 2, Qt.SolidLine))
+        self.pen.setCosmetic(True)
+
+        self.mitosis_pen = QPen(QColor(255, 0, 0), 2, Qt.SolidLine)
+        self.mitosis_pen.setCosmetic(True)
+
+        self.text_bg = QColor(255, 255, 0, 200)
+        self.text_pen = QPen(Qt.black, 1)
+        self.text_pen.setCosmetic(True)
+        self.font = QFont("Arial", 11, QFont.Bold)
+
+    # -------------------------------
+    # Public API
+    # -------------------------------
+    def add_mitosis_detections(self, detections: List[MitosisDetection]) -> None:
         if not detections:
             return
-        # 중복 방지 (bbox + confidence 기준)
         existing = {(d.bbox, round(d.confidence, 3)) for d in self.mitosis_detections}
+        appended = False
         for d in detections:
-            if (d.bbox, round(d.confidence, 3)) not in existing:
+            key = (d.bbox, round(d.confidence, 3))
+            if key not in existing:
                 self.mitosis_detections.append(d)
+                appended = True
+        if appended:
+            try:
+                self.update()
+            except RuntimeError:
+                pass  # Item may already be deleted
 
-        # 안전하게 업데이트 호출
+    def set_mitosis_detections(self, detections: List[MitosisDetection]) -> None:
+        """Replace all detections at once."""
+        self.mitosis_detections = list(detections or [])
         try:
-            if hasattr(self, 'scene') and self.scene():
-                self.update()  # 화면 리프레시 트리거
+            self.update()
         except RuntimeError:
-            # Qt 객체가 이미 삭제된 경우 무시
             pass
 
-    def clear_mitosis_detections(self):
-        """Mitosis 감지 결과 제거"""
+    def clear_mitosis_detections(self) -> None:
         if self.mitosis_detections:
             self.mitosis_detections.clear()
-            # 안전하게 업데이트 호출
             try:
-                if hasattr(self, 'scene') and self.scene():
-                    self.update()
+                self.update()
             except RuntimeError:
-                # Qt 객체가 이미 삭제된 경우 무시
                 pass
 
+    # -------------------------------
+    # QGraphicsItem overrides
+    # -------------------------------
     def boundingRect(self) -> QRectF:
-        # 아주 큰 rect 반환해서 항상 paint 호출되게 함
+        # Very large rect so we always get paint() calls without recomputing geometry
         return QRectF(-1e6, -1e6, 2e6, 2e6)
 
     def paint(self, painter: QPainter, option, widget=None) -> None:
-        from PySide6.QtCore import QRectF
+        # --- Debug: if paint is called, we can draw a viewport-wide cross in device space ---
+        # (Uncomment if you need to sanity-check the rendering path.)
+        # self._debug_device_cross(painter)
 
-        if not self.get_scale:
-            return
-        s = float(self.get_scale())
+        s_level = float(self.get_scale())  # level0 -> scene
 
-        print(f"=== PAINT 호출 ===")
-        print(f"스케일: {s}")
-        print(f"Mitosis 감지 결과 개수: {len(self.mitosis_detections)}")
-
-        # === 강제 테스트 박스 (화면 중앙에 고정) ===
-        try:
-            scene_rect = self.scene().sceneRect() if self.scene() else QRectF(0, 0, 10000, 10000)
-            center_x = scene_rect.center().x()
-            center_y = scene_rect.center().y()
-
-            # 화면 중앙에 큰 테스트 박스
-            painter.setPen(QPen(QColor(0, 255, 0), 10, Qt.SolidLine))  # 녹색 매우 굵은 선
-            test_rect = QRectF(center_x - 200, center_y - 200, 400, 400)
-            painter.drawRect(test_rect)
-            painter.fillRect(test_rect, QColor(0, 255, 0, 50))  # 반투명 녹색 채우기
-
-            painter.setPen(QPen(Qt.black, 2))
-            painter.drawText(test_rect, Qt.AlignCenter, "TEST BOX\nVISIBLE?")
-            print(f"강제 테스트 박스 그리기: {test_rect}")
-        except Exception as e:
-            print(f"테스트 박스 실패: {e}")
-
-        # --- 기존 오버레이 ---
+        # Draw optional debug primitives in SCENE space (they will scale with zoom)
         painter.setPen(self.pen)
         for (x0, y0) in self.level0_points:
-            painter.drawEllipse(QPointF(x0 * s, y0 * s), 6, 6)
-        for (x0, y0, w0, h0) in self.level0_boxes:
-            painter.drawRect(x0 * s, y0 * s, w0 * s, h0 * s)
+            painter.drawEllipse(QPointF(x0 * s_level, y0 * s_level), 4, 4)
+        for (x1, y1, x2, y2) in self.level0_boxes:
+            painter.drawRect(x1 * s_level, y1 * s_level, (x2 - x1) * s_level, (y2 - y1) * s_level)
 
-        # --- Mitosis Detection ---
         if not self.mitosis_detections:
-            print("감지 결과 없음 - paint 종료")
             return
 
+        # Mitosis boxes: draw with **fixed pixel size** using device-space painting.
+        for det in self.mitosis_detections:
+            x1, y1, x2, y2 = map(float, det.bbox)
+
+            # Anchor at bbox center in SCENE coordinates
+            if det.level0_coords:
+                cx = (x1 + x2) * 0.5 * s_level
+                cy = (y1 + y2) * 0.5 * s_level
+            else:  # already scene coords
+                cx = (x1 + x2) * 0.5
+                cy = (y1 + y2) * 0.5
+
+            scene_pt = QPointF(cx, cy)
+            self._draw_fixed_pixel_box(painter, scene_pt, det)
+
+    # -------------------------------
+    # Helpers
+    # -------------------------------
+    def _draw_fixed_pixel_box(self, painter: QPainter, scene_pt: QPointF, det: MitosisDetection) -> None:
+        """
+        Draw a box centered at `scene_pt` whose **on-screen size is constant** in pixels.
+        Implementation: map scene->device, reset transform, draw in device pixels, restore.
+        """
+        # Map anchor point to device coords under current world transform
+        device_pt = painter.worldTransform().map(scene_pt)
+
+        half = self.box_px * 0.5
+        rect_px = QRectF(device_pt.x() - half, device_pt.y() - half, self.box_px, self.box_px)
+
+        painter.save()
+        painter.resetTransform()  # from here, we paint in device pixels
+
+        # Filled rectangle + border (cosmetic pens)
+        painter.fillRect(rect_px, QColor(255, 0, 0, 80))
         painter.setPen(self.mitosis_pen)
+        painter.drawRect(rect_px)
+
+        # Cross mark
+        painter.drawLine(rect_px.topLeft(), rect_px.bottomRight())
+        painter.drawLine(rect_px.topRight(), rect_px.bottomLeft())
+
+        # Confidence label background
+        label_h = 18
+        text_rect = QRectF(rect_px.x(), rect_px.y() - (label_h + 4), max(rect_px.width(), 120.0), label_h)
+        painter.fillRect(text_rect, self.text_bg)
+        painter.setPen(self.text_pen)
         painter.setFont(self.font)
+        painter.drawText(text_rect, Qt.AlignCenter, f"MITOSIS: {det.confidence:.3f}")
 
-        for i, detection in enumerate(self.mitosis_detections):
-            x1, y1, x2, y2 = detection.bbox
+        painter.restore()
 
-            # numpy 타입을 Python float로 변환
-            x1, y1, x2, y2 = float(x1), float(y1), float(x2), float(y2)
+    def _debug_device_cross(self, painter: QPainter) -> None:
+        """Draws a large cross in device space to confirm that paint() is being invoked and visible."""
+        painter.save()
+        painter.resetTransform()
+        painter.setPen(QPen(Qt.green, 1))
+        painter.drawLine(0, 0, 2000, 2000)
+        painter.drawLine(2000, 0, 0, 2000)
+        painter.restore()
 
-            # level0_coords=True인 경우 스케일 적용, False인 경우 현재 레벨 좌표로 간주
-            if detection.level0_coords:
-                rect_x = x1 * s
-                rect_y = y1 * s
-                rect_w = (x2 - x1) * s
-                rect_h = (y2 - y1) * s
-            else:
-                rect_x = x1
-                rect_y = y1
-                rect_w = x2 - x1
-                rect_h = y2 - y1
 
-            # Qt에서 사용할 수 있도록 float로 변환
-            rect_x, rect_y, rect_w, rect_h = float(rect_x), float(rect_y), float(rect_w), float(rect_h)
-
-            print(f"감지박스 {i}: 원본=({x1:.1f}, {y1:.1f}, {x2:.1f}, {y2:.1f})")
-            print(f"감지박스 {i}: level0_coords={detection.level0_coords}, 스케일={s:.4f}")
-            print(f"감지박스 {i}: 렌더링=({rect_x:.1f}, {rect_y:.1f}, {rect_w:.1f}, {rect_h:.1f})")
-
-            # 박스 그리기 - 가시성 강화
-            rect = QRectF(rect_x, rect_y, rect_w, rect_h)
-
-            # 반투명 채우기로 더 눈에 띄게
-            painter.fillRect(rect, QColor(255, 0, 0, 80))  # 반투명 빨간색 채우기
-            painter.drawRect(rect)  # 테두리
-
-            # X 표시로 중심점 강조
-            painter.drawLine(rect_x, rect_y, rect_x + rect_w, rect_y + rect_h)
-            painter.drawLine(rect_x + rect_w, rect_y, rect_x, rect_y + rect_h)
-
-            # 점수 표시 - 더 큰 텍스트
-            confidence_text = f"MITOSIS: {float(detection.confidence):.3f}"
-            text_rect = QRectF(rect_x, rect_y - 40, max(rect_w, 150), 30)
-            painter.fillRect(text_rect, QColor(255, 255, 0, 200))  # 노란색 배경
-            painter.setPen(QPen(Qt.black, 2))
-            painter.drawText(text_rect, Qt.AlignCenter, confidence_text)
-            painter.setPen(self.mitosis_pen)
-
-        print(f"=== PAINT 완료 ===")
-        print(f"{len(self.mitosis_detections)}개 박스 그리기 완료")
+# -------------------------------
+# Usage notes
+# -------------------------------
+# 1) Keep a strong reference on the overlay (e.g., self.overlay = OverlayItem(...))
+#    and add it to the scene **once**: scene.addItem(self.overlay)
+#    If you lose the Python reference, the C++ item may be GC'ed, leading to
+#    "Internal C++ object already deleted" on later calls.
+#
+# 2) Provide a proper scale function:
+#    - If your scene coordinates are already level0, use: get_scale_func=lambda: 1.0
+#    - If you render a downsampled level L where level_downsample[L] = dL, and your scene
+#      uses level L coordinates, then level0->scene scale is s = 1/dL.
+#
+# 3) To update from worker threads, emit a Qt signal carrying detections and connect it to
+#    OverlayItem.set_mitosis_detections on the GUI thread. QGraphicsItem is **not** thread-safe.

@@ -4,37 +4,37 @@ from typing import List
 from PySide6.QtCore import QThread, Signal
 from PIL import Image
 
-from .mitosis_detector import MitosisDetector, DetectionResult
+from .api_client import MitosisAPIClient, DetectionResult, APIConfig
 
 class MitosisDetectionWorker(QThread):
-    """Mitosis 감지를 위한 백그라운드 워커 쓰레드"""
+    """서버 API를 사용한 Mitosis 감지 백그라운드 워커 쓰레드"""
 
     # 시그널 정의
     progress_updated = Signal(str)  # 진행 상태 메시지
     detection_completed = Signal(list)  # 감지 결과 (List[DetectionResult])
     detection_failed = Signal(str)  # 에러 메시지
 
-    def __init__(self, image: Image.Image, model_path: str = None):
+    def __init__(self, image: Image.Image, api_config: APIConfig = None):
         super().__init__()
         self.image = image
-        self.model_path = model_path
+        self.api_config = api_config
         self.logger = logging.getLogger(__name__)
 
     def run(self):
         """메인 실행 함수"""
         try:
-            self.progress_updated.emit("Initializing detector...")
+            self.progress_updated.emit("Connecting to detection server...")
 
-            # 감지기 초기화
-            detector = MitosisDetector(model_path=self.model_path)
+            # API 클라이언트 초기화
+            client = MitosisAPIClient(config=self.api_config)
 
-            if not detector.is_ready():
-                raise RuntimeError("감지기 초기화 실패 - 모델 파일을 확인하세요")
+            if not client.is_ready():
+                raise RuntimeError("Detection server is not available. Please check server connection.")
 
-            self.progress_updated.emit("Running inference...")
+            self.progress_updated.emit("Sending image to server for analysis...")
 
             # 감지 수행
-            results = detector.detect_from_pil(self.image)
+            results = client.detect_from_pil(self.image)
 
             self.progress_updated.emit(f"Detection complete: {len(results)} mitosis found")
 
