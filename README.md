@@ -37,7 +37,7 @@
 
 ```bash
 # 저장소 클론
-git clone <repository-url>
+git clone https://github.com/kimtaegyu1223/TaegyuSlide.git
 cd TaegyuSlide
 
 # 의존성 설치
