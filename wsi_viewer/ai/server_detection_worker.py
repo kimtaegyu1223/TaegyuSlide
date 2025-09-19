@@ -255,7 +255,7 @@ class BatchDetectionWorker(QThread):
                     global_x2 = patch_info.x + x2
                     global_y2 = patch_info.y + y2
 
-                    detection = MitosisDetection(
+                    detection = ObjectDetection(
                         bbox=(global_x1, global_y1, global_x2, global_y2),
                         confidence=result.confidence,
                         level0_coords=True
