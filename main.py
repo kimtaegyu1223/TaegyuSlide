@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (QApplication, QDockWidget, QLabel, QMainWindow, Q
                                QVBoxLayout, QPushButton, QMessageBox, QSplitter, QProgressBar,
                                QTextEdit, QTabWidget, QHBoxLayout, QSpinBox, QCheckBox, QComboBox)
 from wsi_viewer.viewer import SlideViewer
-from wsi_viewer.ai import MitosisDetectionWorker, ServerBasedDetectionWorker, BatchDetectionWorker, APIConfig
+from wsi_viewer.ai import ServerBasedDetectionWorker, BatchDetectionWorker, APIConfig
 from wsi_viewer.config import CONFIG
 
 
@@ -98,12 +98,6 @@ class MainWindow(QMainWindow):
         self.info = QLabel("No slide loaded")
         self.info.setWordWrap(True)
         layout.addWidget(self.info)
-
-        # 빠른 감지 버튼 (현재 뷰포트)
-        self.btn_detect_viewport = QPushButton("🔍 Detect (Current View)")
-        self.btn_detect_viewport.setEnabled(False)
-        self.btn_detect_viewport.clicked.connect(self.detect_mitosis_viewport)
-        layout.addWidget(self.btn_detect_viewport)
 
         # 전체 슬라이드 감지 버튼
         self.btn_detect_full = QPushButton("🔬 Detect (Full Slide)")
@@ -224,11 +218,9 @@ class MainWindow(QMainWindow):
                 txt = f"Levels: {b.levels}\\nDims: {b.dimensions}\\nMPP: {b.mpp_x:.3f} x {b.mpp_y:.3f}\\nObjective: {b.objective_power}"
                 self.info.setText(txt)
                 # 슬라이드가 로드되면 감지 버튼 활성화
-                self.btn_detect_viewport.setEnabled(True)
                 self.btn_detect_full.setEnabled(True)
-                print("슬라이드 로딩 완료, 버튼 활성화됨")
         except Exception as e:
-            print(f"슬라이드 로딩 오류: {e}")
+            logging.error(f"슬라이드 로딩 오류: {e}")
             QMessageBox.critical(self, "오류", f"슬라이드 로딩 실패:\\n{e}")
 
     def toggle_dashboard(self):
@@ -252,43 +244,15 @@ class MainWindow(QMainWindow):
                 self.server_status_label.setText(status_text)
                 # 슬라이드가 로드된 경우에만 버튼 활성화
                 if self.viewer.backend:
-                    self.btn_detect_viewport.setEnabled(True)
                     self.btn_detect_full.setEnabled(True)
             else:
                 self.server_status_label.setText(f"✗ Cannot connect to {self.api_config.base_url}\nPlease check if the server is running.")
-                self.btn_detect_viewport.setEnabled(False)
                 self.btn_detect_full.setEnabled(False)
 
         except Exception as e:
             self.server_status_label.setText(f"✗ Connection failed: {e}")
-            self.btn_detect_viewport.setEnabled(False)
             self.btn_detect_full.setEnabled(False)
 
-    def detect_mitosis_viewport(self):
-        """현재 뷰포트에서 빠른 감지"""
-        if not self.viewer.backend:
-            self.status_label.setText("No slide loaded")
-            return
-
-        # 현재 뷰포트 이미지 추출
-        image = self.viewer.get_viewport_image(target_level=0)
-        if image is None:
-            QMessageBox.warning(self, "Warning", "Failed to extract image from current viewport")
-            return
-
-        # 기존 결과 제거
-        self.viewer.clear_mitosis_detections()
-
-        # 버튼 비활성화
-        self.btn_detect_viewport.setEnabled(False)
-        self.status_label.setText("Processing viewport...")
-
-        # 서버 API 워커 시작
-        self.detection_worker = MitosisDetectionWorker(image, api_config=self.api_config)
-        self.detection_worker.progress_updated.connect(self.on_viewport_progress)
-        self.detection_worker.detection_completed.connect(self.on_viewport_completed)
-        self.detection_worker.detection_failed.connect(self.on_viewport_failed)
-        self.detection_worker.start()
 
     def detect_mitosis_full_slide(self):
         """전체 슬라이드 감지"""
@@ -301,7 +265,6 @@ class MainWindow(QMainWindow):
 
         # 버튼 비활성화
         self.btn_detect_full.setEnabled(False)
-        self.btn_detect_viewport.setEnabled(False)
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
 
@@ -347,28 +310,12 @@ class MainWindow(QMainWindow):
 
     def fit_detections_to_view(self):
         """모든 감지 결과가 보이도록 화면 조정"""
-        self.viewer.fit_detections_to_view()
-        self.status_label.setText("View fitted to all detections")
-
-    # 뷰포트 감지 이벤트 핸들러
-    def on_viewport_progress(self, message: str):
-        self.status_label.setText(message)
-
-    def on_viewport_completed(self, results):
-        self.btn_detect_viewport.setEnabled(True)
-        if results:
-            self.viewer.add_mitosis_detections(results)
-            self.status_label.setText(f"Found {len(results)} mitosis in viewport")
-            self.results_stats.setText(f"Viewport: {len(results)} detections")
+        if hasattr(self.viewer, 'fit_detections_to_view'):
+            self.viewer.fit_detections_to_view()
+            self.status_label.setText("View fitted to all detections")
         else:
-            self.status_label.setText("No mitosis detected in viewport")
-        self.detection_worker = None
+            self.status_label.setText("Fit to detections not available")
 
-    def on_viewport_failed(self, error_message: str):
-        self.btn_detect_viewport.setEnabled(True)
-        self.status_label.setText("Viewport detection failed")
-        QMessageBox.critical(self, "Detection Error", error_message)
-        self.detection_worker = None
 
     # 전체 슬라이드 감지 이벤트 핸들러
     def on_analysis_completed(self, analysis):
@@ -397,7 +344,6 @@ class MainWindow(QMainWindow):
     def on_full_completed(self, results):
         """전체 감지 완료"""
         self.btn_detect_full.setEnabled(True)
-        self.btn_detect_viewport.setEnabled(True)
         self.progress_bar.setVisible(False)
 
         if results:
@@ -422,7 +368,6 @@ class MainWindow(QMainWindow):
     def on_full_failed(self, error_message: str):
         """전체 감지 실패"""
         self.btn_detect_full.setEnabled(True)
-        self.btn_detect_viewport.setEnabled(True)
         self.progress_bar.setVisible(False)
         self.status_label.setText("Full slide detection failed")
 
@@ -441,7 +386,7 @@ class MainWindow(QMainWindow):
                 self.results_log.append(f"Batch processed: {len(batch_detections)} detections")
         except Exception as e:
             # UI 업데이트 실패 시 로그만 기록하고 계속 진행
-            print(f"배치 결과 표시 오류: {e}")
+            logging.warning(f"배치 결과 표시 오류: {e}")
 
 if __name__ == "__main__":
     # 로깅 설정
