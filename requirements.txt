@@ -13,5 +13,5 @@ requests>=2.25.0
 
 # 로깅 및 유틸리티
 pathlib  # Python 3.4+ 기본 포함
-
+requests
 #pip install openslide-bin

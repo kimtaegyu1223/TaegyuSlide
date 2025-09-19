@@ -14,7 +14,7 @@ from wsi_viewer.config import CONFIG
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("WSI Viewer with AI Mitosis Detection")
+        self.setWindowTitle("WSI Viewer with AI Model")
 
         # 메인 레이아웃: 스플리터로 뷰어와 대시보드 분할
         self.splitter = QSplitter(Qt.Horizontal)
